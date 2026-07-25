@@ -1,0 +1,8 @@
+
+# STM32CubeIDE build outputs
+firmware/**/Debug/
+firmware/**/Release/
+
+# STM32CubeIDE local metadata
+firmware/**/.settings/language.settings.xml
+firmware/**/*.launch
