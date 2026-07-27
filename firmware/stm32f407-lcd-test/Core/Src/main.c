@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "lcd.h"
 #include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,7 +45,7 @@
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-uint8_t simResponse[64] = {0};
+uint8_t simResponse[128] = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -91,46 +92,126 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+
+
   LCD_Init();
   LCD_Clear();
 
   LCD_SetCursor(0, 0);
-  LCD_Print("SIM800C TEST");
+  LCD_Print("NETWORK TEST");
 
   LCD_SetCursor(0, 1);
-  LCD_Print("WAITING...");
+  LCD_Print("PLEASE WAIT...");
 
-  HAL_Delay(5000);
+  /* زمان لازم برای بوت SIM800C و جست‌وجوی شبکه */
+  HAL_Delay(15000);
 
-  const uint8_t atCommand[] = "AT\r\n";
+  const uint8_t cregCommand[] = "AT+CREG?\r\n";
+  uint8_t dummyByte;
+  uint8_t registered = 0;
+  uint8_t registrationStatus = 0;
 
-  LCD_Clear();
-  LCD_SetCursor(0, 0);
-  LCD_Print("SENDING AT...");
-
-  HAL_UART_Transmit(
-      &huart3,
-      (uint8_t *)atCommand,
-      sizeof(atCommand) - 1U,
-      1000
-  );
-
-  HAL_UART_Receive(
-      &huart3,
-      simResponse,
-      sizeof(simResponse) - 1U,
-      3000
-  );
-
-  LCD_Clear();
-
-  if (strstr((char *)simResponse, "OK") != NULL)
+  /* پاک‌کردن پیام‌های قدیمی موجود در UART */
+  while (HAL_UART_Receive(
+             &huart3,
+             &dummyByte,
+             1,
+             20
+         ) == HAL_OK)
   {
+  }
+
+  /* چند بار وضعیت شبکه را بررسی می‌کنیم */
+  for (uint8_t attempt = 0; attempt < 20; attempt++)
+  {
+      memset(simResponse, 0, sizeof(simResponse));
+
+      HAL_UART_Transmit(
+          &huart3,
+          (uint8_t *)cregCommand,
+          sizeof(cregCommand) - 1U,
+          1000
+      );
+
+      HAL_UART_Receive(
+          &huart3,
+          simResponse,
+          sizeof(simResponse) - 1U,
+          3000
+      );
+
+      /* ثبت در شبکه اصلی */
+      if (strstr((char *)simResponse, "+CREG: 0,1") != NULL ||
+          strstr((char *)simResponse, "+CREG: 1,1") != NULL ||
+          strstr((char *)simResponse, "+CREG: 2,1") != NULL)
+      {
+          registered = 1;
+          registrationStatus = 1;
+          break;
+      }
+
+      /* ثبت در حالت رومینگ */
+      if (strstr((char *)simResponse, "+CREG: 0,5") != NULL ||
+          strstr((char *)simResponse, "+CREG: 1,5") != NULL ||
+          strstr((char *)simResponse, "+CREG: 2,5") != NULL)
+      {
+          registered = 1;
+          registrationStatus = 5;
+          break;
+      }
+
+      /* ثبت در شبکه رد شده است */
+      if (strstr((char *)simResponse, "+CREG: 0,3") != NULL ||
+          strstr((char *)simResponse, "+CREG: 1,3") != NULL ||
+          strstr((char *)simResponse, "+CREG: 2,3") != NULL)
+      {
+          registrationStatus = 3;
+          break;
+      }
+
+      LCD_Clear();
       LCD_SetCursor(0, 0);
-      LCD_Print("SIM800C OK");
+      LCD_Print("SEARCHING...");
 
       LCD_SetCursor(0, 1);
-      LCD_Print("UART3 WORKING");
+      LCD_Print("WAIT FOR NETWORK");
+
+      HAL_Delay(1000);
+  }
+
+  LCD_Clear();
+
+  if ((registered != 0U) && (registrationStatus == 1U))
+  {
+      LCD_SetCursor(0, 0);
+      LCD_Print("REGISTERED");
+
+      LCD_SetCursor(0, 1);
+      LCD_Print("HOME NETWORK");
+  }
+  else if ((registered != 0U) && (registrationStatus == 5U))
+  {
+      LCD_SetCursor(0, 0);
+      LCD_Print("REGISTERED");
+
+      LCD_SetCursor(0, 1);
+      LCD_Print("ROAMING");
+  }
+  else if (registrationStatus == 3U)
+  {
+      LCD_SetCursor(0, 0);
+      LCD_Print("REG DENIED");
+
+      LCD_SetCursor(0, 1);
+      LCD_Print("CHECK SIM");
+  }
+  else if (strstr((char *)simResponse, "+CREG:") != NULL)
+  {
+      LCD_SetCursor(0, 0);
+      LCD_Print("NOT REGISTERED");
+
+      LCD_SetCursor(0, 1);
+      LCD_Print("WAIT OR RETRY");
   }
   else
   {
@@ -138,8 +219,11 @@ int main(void)
       LCD_Print("NO RESPONSE");
 
       LCD_SetCursor(0, 1);
-      LCD_Print("CHECK SIM800C");
+      LCD_Print("CHECK MODULE");
   }
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
