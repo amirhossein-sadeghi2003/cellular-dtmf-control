@@ -6,3 +6,6 @@ firmware/**/Release/
 # STM32CubeIDE local metadata
 firmware/**/.settings/language.settings.xml
 firmware/**/*.launch
+
+# STM32CubeIDE local SFR view settings
+firmware/**/.settings/com.st.stm32cube.ide.mcu.sfrview.prefs

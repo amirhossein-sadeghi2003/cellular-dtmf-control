@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "lcd.h"
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,14 +41,16 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-
+uint8_t simResponse[64] = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -86,12 +89,57 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-LCD_Init();
-LCD_SetCursor(0, 0);
-LCD_Print("AmirHossein");
-LCD_SetCursor(0, 1);
-LCD_Print("STM32 READY");
+  LCD_Init();
+  LCD_Clear();
+
+  LCD_SetCursor(0, 0);
+  LCD_Print("SIM800C TEST");
+
+  LCD_SetCursor(0, 1);
+  LCD_Print("WAITING...");
+
+  HAL_Delay(5000);
+
+  const uint8_t atCommand[] = "AT\r\n";
+
+  LCD_Clear();
+  LCD_SetCursor(0, 0);
+  LCD_Print("SENDING AT...");
+
+  HAL_UART_Transmit(
+      &huart3,
+      (uint8_t *)atCommand,
+      sizeof(atCommand) - 1U,
+      1000
+  );
+
+  HAL_UART_Receive(
+      &huart3,
+      simResponse,
+      sizeof(simResponse) - 1U,
+      3000
+  );
+
+  LCD_Clear();
+
+  if (strstr((char *)simResponse, "OK") != NULL)
+  {
+      LCD_SetCursor(0, 0);
+      LCD_Print("SIM800C OK");
+
+      LCD_SetCursor(0, 1);
+      LCD_Print("UART3 WORKING");
+  }
+  else
+  {
+      LCD_SetCursor(0, 0);
+      LCD_Print("NO RESPONSE");
+
+      LCD_SetCursor(0, 1);
+      LCD_Print("CHECK SIM800C");
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -147,6 +195,39 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -160,6 +241,7 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
