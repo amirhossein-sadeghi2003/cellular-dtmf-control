@@ -67,138 +67,126 @@ static void MX_USART3_UART_Init(void);
   */
 int main(void)
 {
+    HAL_Init();
+    SystemClock_Config();
 
-  /* USER CODE BEGIN 1 */
+    MX_GPIO_Init();
+    MX_USART3_UART_Init();
 
-  /* USER CODE END 1 */
+    LCD_Init();
+    LCD_Clear();
 
-  /* MCU Configuration--------------------------------------------------------*/
+    LCD_SetCursor(0, 0);
+    LCD_Print("SIM800C START");
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+    LCD_SetCursor(0, 1);
+    LCD_Print("PLEASE WAIT");
 
-  /* USER CODE BEGIN Init */
+    HAL_Delay(15000);
 
-  /* USER CODE END Init */
+    uint8_t clccCommand[] = "AT+CLCC\r\n";
+    uint8_t rxByte = 0U;
+    char clccResponse[256] = {0};
 
-  /* Configure the system clock */
-  SystemClock_Config();
+    uint16_t responseIndex = 0U;
+    uint8_t callDisplayed = 0U;
 
-  /* USER CODE BEGIN SysInit */
+    uint32_t receiveStartedAt = 0U;
+    HAL_StatusTypeDef uartStatus;
 
-  /* USER CODE END SysInit */
+    LCD_Clear();
+    LCD_SetCursor(0, 0);
+    LCD_Print("SYSTEM READY");
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_USART3_UART_Init();
-  /* USER CODE BEGIN 2 */
-  HAL_Init();
-      SystemClock_Config();
+    LCD_SetCursor(0, 1);
+    LCD_Print("WAITING FOR CALL");
 
-      MX_GPIO_Init();
-      MX_USART3_UART_Init();
+    while (1)
+    {
+        responseIndex = 0U;
+        memset(clccResponse, 0, sizeof(clccResponse));
 
-      LCD_Init();
-      LCD_Clear();
+        while (HAL_UART_Receive(
+                   &huart3,
+                   &rxByte,
+                   1,
+                   10
+               ) == HAL_OK)
+        {
+        }
 
-      LCD_SetCursor(0, 0);
-      LCD_Print("SIM800C STARTING");
+        __HAL_UART_CLEAR_OREFLAG(&huart3);
+        huart3.ErrorCode = HAL_UART_ERROR_NONE;
 
-      LCD_SetCursor(0, 1);
-      LCD_Print("PLEASE WAIT");
+        uartStatus = HAL_UART_Transmit(
+            &huart3,
+            clccCommand,
+            sizeof(clccCommand) - 1U,
+            1000
+        );
 
-      HAL_Delay(15000);
+        if (uartStatus == HAL_OK)
+        {
+            receiveStartedAt = HAL_GetTick();
 
-      uint8_t rxByte = 0U;
-      uint8_t dummyByte = 0U;
-      char callLine[64] = {0};
-      uint8_t callLineIndex = 0U;
-      uint8_t callDetected = 0U;
+            while ((HAL_GetTick() - receiveStartedAt) < 700U)
+            {
+                uartStatus = HAL_UART_Receive(
+                    &huart3,
+                    &rxByte,
+                    1,
+                    20
+                );
 
-      while (HAL_UART_Receive(
-                 &huart3,
-                 &dummyByte,
-                 1,
-                 20
-             ) == HAL_OK)
-      {
-      }
+                if (uartStatus == HAL_OK)
+                {
+                    if (responseIndex < (sizeof(clccResponse) - 1U))
+                    {
+                        clccResponse[responseIndex] = (char)rxByte;
+                        responseIndex++;
+                        clccResponse[responseIndex] = '\0';
+                    }
+                }
+                else if (uartStatus == HAL_ERROR)
+                {
+                    __HAL_UART_CLEAR_OREFLAG(&huart3);
+                    huart3.ErrorCode = HAL_UART_ERROR_NONE;
+                }
+            }
 
-      LCD_Clear();
-      LCD_SetCursor(0, 0);
-      LCD_Print("NETWORK READY");
+            if (strstr(clccResponse, "+CLCC:") != NULL)
+            {
+                if (callDisplayed == 0U)
+                {
+                    callDisplayed = 1U;
 
-      LCD_SetCursor(0, 1);
-      LCD_Print("WAITING FOR CALL");
+                    LCD_Clear();
+                    LCD_SetCursor(0, 0);
+                    LCD_Print("INCOMING CALL");
 
-      while (1)
-      {
-          if (HAL_UART_Receive(
-                  &huart3,
-                  &rxByte,
-                  1,
-                  100
-              ) == HAL_OK)
-          {
-              if (rxByte == '\n')
-              {
-                  callLine[callLineIndex] = '\0';
+                    LCD_SetCursor(0, 1);
+                    LCD_Print("PHONE IS RINGING");
+                }
+            }
+            else
+            {
+                if (callDisplayed != 0U)
+                {
+                    callDisplayed = 0U;
 
-                  if ((strstr(callLine, "RING") != NULL) &&
-                      (callDetected == 0U))
-                  {
-                      callDetected = 1U;
+                    LCD_Clear();
+                    LCD_SetCursor(0, 0);
+                    LCD_Print("SYSTEM READY");
 
-                      LCD_Clear();
-                      LCD_SetCursor(0, 0);
-                      LCD_Print("INCOMING CALL");
+                    LCD_SetCursor(0, 1);
+                    LCD_Print("WAITING FOR CALL");
+                }
+            }
+        }
 
-                      LCD_SetCursor(0, 1);
-                      LCD_Print("PHONE IS RINGING");
-                  }
-                  else if ((strstr(callLine, "NO CARRIER") != NULL) ||
-                           (strstr(callLine, "BUSY") != NULL) ||
-                           (strstr(callLine, "NO ANSWER") != NULL))
-                  {
-                      callDetected = 0U;
-
-                      LCD_Clear();
-                      LCD_SetCursor(0, 0);
-                      LCD_Print("CALL ENDED");
-
-                      LCD_SetCursor(0, 1);
-                      LCD_Print("PLEASE WAIT");
-
-                      HAL_Delay(2000);
-
-                      LCD_Clear();
-                      LCD_SetCursor(0, 0);
-                      LCD_Print("NETWORK READY");
-
-                      LCD_SetCursor(0, 1);
-                      LCD_Print("WAITING FOR CALL");
-                  }
-
-                  callLineIndex = 0U;
-                  memset(callLine, 0, sizeof(callLine));
-              }
-              else if (rxByte != '\r')
-              {
-                  if (callLineIndex < (sizeof(callLine) - 1U))
-                  {
-                      callLine[callLineIndex] = (char)rxByte;
-                      callLineIndex++;
-                  }
-                  else
-                  {
-                      callLineIndex = 0U;
-                      memset(callLine, 0, sizeof(callLine));
-                  }
-              }
-          }
-      }
+        HAL_Delay(100);
+    }
 }
-
 /**
   * @brief System Clock Configuration
   * @retval None
