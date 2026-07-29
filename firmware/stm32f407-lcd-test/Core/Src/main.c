@@ -84,14 +84,27 @@ int main(void)
 
     HAL_Delay(15000);
 
-    uint8_t clccCommand[] = "AT+CLCC\r\n";
+    uint8_t clccCommand[] = "AT+CLCC\r";
+    uint8_t answerCommand[] = "ATA\r";
     uint8_t rxByte = 0U;
+
     char clccResponse[256] = {0};
+    char *clccPosition = NULL;
 
     uint16_t responseIndex = 0U;
-    uint8_t callDisplayed = 0U;
+
+    uint8_t callState = 0U;
+    uint8_t callFound = 0U;
+    uint8_t validClccResponse = 0U;
+
+    int callId = 0;
+    int callDirection = 0;
+    int callStatus = 0;
+    int callMode = 0;
+    int callMultiparty = 0;
 
     uint32_t receiveStartedAt = 0U;
+
     HAL_StatusTypeDef uartStatus;
 
     LCD_Clear();
@@ -104,6 +117,15 @@ int main(void)
     while (1)
     {
         responseIndex = 0U;
+        callFound = 0U;
+        validClccResponse = 0U;
+
+        callId = 0;
+        callDirection = 0;
+        callStatus = 0;
+        callMode = 0;
+        callMultiparty = 0;
+
         memset(clccResponse, 0, sizeof(clccResponse));
 
         while (HAL_UART_Receive(
@@ -115,8 +137,11 @@ int main(void)
         {
         }
 
-        __HAL_UART_CLEAR_OREFLAG(&huart3);
-        huart3.ErrorCode = HAL_UART_ERROR_NONE;
+        if (HAL_UART_GetError(&huart3) != HAL_UART_ERROR_NONE)
+        {
+            __HAL_UART_CLEAR_OREFLAG(&huart3);
+            huart3.ErrorCode = HAL_UART_ERROR_NONE;
+        }
 
         uartStatus = HAL_UART_Transmit(
             &huart3,
@@ -154,25 +179,71 @@ int main(void)
                 }
             }
 
-            if (strstr(clccResponse, "+CLCC:") != NULL)
+            if (strstr(clccResponse, "OK") != NULL)
             {
-                if (callDisplayed == 0U)
+                validClccResponse = 1U;
+            }
+
+            clccPosition = strstr(clccResponse, "+CLCC:");
+
+            if (clccPosition != NULL)
+            {
+                if (sscanf(
+                        clccPosition,
+                        "+CLCC: %d,%d,%d,%d,%d",
+                        &callId,
+                        &callDirection,
+                        &callStatus,
+                        &callMode,
+                        &callMultiparty
+                    ) >= 5)
                 {
-                    callDisplayed = 1U;
+                    callFound = 1U;
+                }
+            }
+
+            if ((callFound != 0U) &&
+                (callDirection == 1) &&
+                (callStatus == 4) &&
+                (callState == 0U))
+            {
+                LCD_Clear();
+                LCD_SetCursor(0, 0);
+                LCD_Print("INCOMING CALL");
+
+                LCD_SetCursor(0, 1);
+                LCD_Print("SENDING ATA");
+
+                uartStatus = HAL_UART_Transmit(
+                    &huart3,
+                    answerCommand,
+                    sizeof(answerCommand) - 1U,
+                    1000
+                );
+
+                if (uartStatus == HAL_OK)
+                {
+                    callState = 1U;
 
                     LCD_Clear();
                     LCD_SetCursor(0, 0);
-                    LCD_Print("INCOMING CALL");
+                    LCD_Print("ATA SENT");
 
                     LCD_SetCursor(0, 1);
-                    LCD_Print("PHONE IS RINGING");
+                    LCD_Print("CHECKING CALL");
                 }
-            }
-            else
-            {
-                if (callDisplayed != 0U)
+                else
                 {
-                    callDisplayed = 0U;
+                    LCD_Clear();
+                    LCD_SetCursor(0, 0);
+                    LCD_Print("ATA TX ERROR");
+
+                    LCD_SetCursor(0, 1);
+                    LCD_Print("PLEASE WAIT");
+
+                    HAL_Delay(1500);
+
+                    callState = 0U;
 
                     LCD_Clear();
                     LCD_SetCursor(0, 0);
@@ -181,6 +252,41 @@ int main(void)
                     LCD_SetCursor(0, 1);
                     LCD_Print("WAITING FOR CALL");
                 }
+            }
+            else if ((callFound != 0U) &&
+                     (callStatus == 0) &&
+                     (callState != 2U))
+            {
+                callState = 2U;
+
+                LCD_Clear();
+                LCD_SetCursor(0, 0);
+                LCD_Print("CALL CONNECTED");
+
+                LCD_SetCursor(0, 1);
+                LCD_Print("VOICE CALL");
+            }
+            else if ((callFound == 0U) &&
+                     (validClccResponse != 0U) &&
+                     (callState != 0U))
+            {
+                callState = 0U;
+
+                LCD_Clear();
+                LCD_SetCursor(0, 0);
+                LCD_Print("CALL ENDED");
+
+                LCD_SetCursor(0, 1);
+                LCD_Print("PLEASE WAIT");
+
+                HAL_Delay(1500);
+
+                LCD_Clear();
+                LCD_SetCursor(0, 0);
+                LCD_Print("SYSTEM READY");
+
+                LCD_SetCursor(0, 1);
+                LCD_Print("WAITING FOR CALL");
             }
         }
 
