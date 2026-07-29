@@ -92,149 +92,111 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_Init();
+      SystemClock_Config();
 
+      MX_GPIO_Init();
+      MX_USART3_UART_Init();
 
-  LCD_Init();
-  LCD_Clear();
+      LCD_Init();
+      LCD_Clear();
 
-  LCD_SetCursor(0, 0);
-  LCD_Print("NETWORK TEST");
+      LCD_SetCursor(0, 0);
+      LCD_Print("SIM800C STARTING");
 
-  LCD_SetCursor(0, 1);
-  LCD_Print("PLEASE WAIT...");
+      LCD_SetCursor(0, 1);
+      LCD_Print("PLEASE WAIT");
 
-  /* زمان لازم برای بوت SIM800C و جست‌وجوی شبکه */
-  HAL_Delay(15000);
+      HAL_Delay(15000);
 
-  const uint8_t cregCommand[] = "AT+CREG?\r\n";
-  uint8_t dummyByte;
-  uint8_t registered = 0;
-  uint8_t registrationStatus = 0;
+      uint8_t rxByte = 0U;
+      uint8_t dummyByte = 0U;
+      char callLine[64] = {0};
+      uint8_t callLineIndex = 0U;
+      uint8_t callDetected = 0U;
 
-  /* پاک‌کردن پیام‌های قدیمی موجود در UART */
-  while (HAL_UART_Receive(
-             &huart3,
-             &dummyByte,
-             1,
-             20
-         ) == HAL_OK)
-  {
-  }
-
-  /* چند بار وضعیت شبکه را بررسی می‌کنیم */
-  for (uint8_t attempt = 0; attempt < 20; attempt++)
-  {
-      memset(simResponse, 0, sizeof(simResponse));
-
-      HAL_UART_Transmit(
-          &huart3,
-          (uint8_t *)cregCommand,
-          sizeof(cregCommand) - 1U,
-          1000
-      );
-
-      HAL_UART_Receive(
-          &huart3,
-          simResponse,
-          sizeof(simResponse) - 1U,
-          3000
-      );
-
-      /* ثبت در شبکه اصلی */
-      if (strstr((char *)simResponse, "+CREG: 0,1") != NULL ||
-          strstr((char *)simResponse, "+CREG: 1,1") != NULL ||
-          strstr((char *)simResponse, "+CREG: 2,1") != NULL)
+      while (HAL_UART_Receive(
+                 &huart3,
+                 &dummyByte,
+                 1,
+                 20
+             ) == HAL_OK)
       {
-          registered = 1;
-          registrationStatus = 1;
-          break;
-      }
-
-      /* ثبت در حالت رومینگ */
-      if (strstr((char *)simResponse, "+CREG: 0,5") != NULL ||
-          strstr((char *)simResponse, "+CREG: 1,5") != NULL ||
-          strstr((char *)simResponse, "+CREG: 2,5") != NULL)
-      {
-          registered = 1;
-          registrationStatus = 5;
-          break;
-      }
-
-      /* ثبت در شبکه رد شده است */
-      if (strstr((char *)simResponse, "+CREG: 0,3") != NULL ||
-          strstr((char *)simResponse, "+CREG: 1,3") != NULL ||
-          strstr((char *)simResponse, "+CREG: 2,3") != NULL)
-      {
-          registrationStatus = 3;
-          break;
       }
 
       LCD_Clear();
       LCD_SetCursor(0, 0);
-      LCD_Print("SEARCHING...");
+      LCD_Print("NETWORK READY");
 
       LCD_SetCursor(0, 1);
-      LCD_Print("WAIT FOR NETWORK");
+      LCD_Print("WAITING FOR CALL");
 
-      HAL_Delay(1000);
-  }
+      while (1)
+      {
+          if (HAL_UART_Receive(
+                  &huart3,
+                  &rxByte,
+                  1,
+                  100
+              ) == HAL_OK)
+          {
+              if (rxByte == '\n')
+              {
+                  callLine[callLineIndex] = '\0';
 
-  LCD_Clear();
+                  if ((strstr(callLine, "RING") != NULL) &&
+                      (callDetected == 0U))
+                  {
+                      callDetected = 1U;
 
-  if ((registered != 0U) && (registrationStatus == 1U))
-  {
-      LCD_SetCursor(0, 0);
-      LCD_Print("REGISTERED");
+                      LCD_Clear();
+                      LCD_SetCursor(0, 0);
+                      LCD_Print("INCOMING CALL");
 
-      LCD_SetCursor(0, 1);
-      LCD_Print("HOME NETWORK");
-  }
-  else if ((registered != 0U) && (registrationStatus == 5U))
-  {
-      LCD_SetCursor(0, 0);
-      LCD_Print("REGISTERED");
+                      LCD_SetCursor(0, 1);
+                      LCD_Print("PHONE IS RINGING");
+                  }
+                  else if ((strstr(callLine, "NO CARRIER") != NULL) ||
+                           (strstr(callLine, "BUSY") != NULL) ||
+                           (strstr(callLine, "NO ANSWER") != NULL))
+                  {
+                      callDetected = 0U;
 
-      LCD_SetCursor(0, 1);
-      LCD_Print("ROAMING");
-  }
-  else if (registrationStatus == 3U)
-  {
-      LCD_SetCursor(0, 0);
-      LCD_Print("REG DENIED");
+                      LCD_Clear();
+                      LCD_SetCursor(0, 0);
+                      LCD_Print("CALL ENDED");
 
-      LCD_SetCursor(0, 1);
-      LCD_Print("CHECK SIM");
-  }
-  else if (strstr((char *)simResponse, "+CREG:") != NULL)
-  {
-      LCD_SetCursor(0, 0);
-      LCD_Print("NOT REGISTERED");
+                      LCD_SetCursor(0, 1);
+                      LCD_Print("PLEASE WAIT");
 
-      LCD_SetCursor(0, 1);
-      LCD_Print("WAIT OR RETRY");
-  }
-  else
-  {
-      LCD_SetCursor(0, 0);
-      LCD_Print("NO RESPONSE");
+                      HAL_Delay(2000);
 
-      LCD_SetCursor(0, 1);
-      LCD_Print("CHECK MODULE");
-  }
+                      LCD_Clear();
+                      LCD_SetCursor(0, 0);
+                      LCD_Print("NETWORK READY");
 
+                      LCD_SetCursor(0, 1);
+                      LCD_Print("WAITING FOR CALL");
+                  }
 
-
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
+                  callLineIndex = 0U;
+                  memset(callLine, 0, sizeof(callLine));
+              }
+              else if (rxByte != '\r')
+              {
+                  if (callLineIndex < (sizeof(callLine) - 1U))
+                  {
+                      callLine[callLineIndex] = (char)rxByte;
+                      callLineIndex++;
+                  }
+                  else
+                  {
+                      callLineIndex = 0U;
+                      memset(callLine, 0, sizeof(callLine));
+                  }
+              }
+          }
+      }
 }
 
 /**
