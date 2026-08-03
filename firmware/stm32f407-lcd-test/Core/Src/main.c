@@ -33,7 +33,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define CALL_IDLE 0U
+#define CALL_RINGING 1U
+#define CALL_ANSWERING 2U
+#define CALL_ACTIVE 3U
+#define UART_RX_RING_SIZE 512U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,7 +49,33 @@
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-uint8_t simResponse[128] = {0};
+static uint8_t uartRxByte = 0U;
+static uint8_t uartRxRing[UART_RX_RING_SIZE];
+static volatile uint16_t uartRxHead = 0U;
+static volatile uint16_t uartRxTail = 0U;
+static volatile uint8_t uartRxArmed = 0U;
+static volatile uint32_t uartRxOverflowCount = 0U;
+
+static char uartLine[128];
+static uint16_t uartLineIndex = 0U;
+static char lcdLine2[17];
+
+static uint8_t commandPending = 0U;
+static int8_t commandResult = 0;
+
+static uint8_t modemConfigured = 0U;
+static uint8_t monitorResetsEnabled = 0U;
+static uint32_t modemResetCount = 0U;
+static uint32_t nextConfigAttemptAt = 0U;
+
+static uint8_t callState = CALL_IDLE;
+static uint8_t clccCallFound = 0U;
+static uint8_t noCallCount = 0U;
+static uint32_t nextClccAt = 0U;
+static uint32_t nextAnswerAttemptAt = 0U;
+
+static uint8_t dtmfVisible = 0U;
+static uint32_t dtmfVisibleUntil = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -53,12 +83,468 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void LCD_Show(const char *line1, const char *line2);
+static void LCD_ShowWaiting(void);
+static void LCD_ShowConnected(void);
+static void LCD_ShowDTMF(char key);
+static void LCD_ShowReboot(void);
+static void SIM_ClearUARTError(void);
+static void SIM_StartUARTReceiver(void);
+static void SIM_PumpUART(void);
+static void SIM_ProcessLine(char *line);
+static void SIM_ProcessByte(uint8_t rxByte);
+static void SIM_WatchUART(uint32_t duration);
+static int8_t SIM_SendCommandAndWait(const char *command, uint32_t timeout);
+static uint8_t SIM_ConfigureModem(void);
+static void SIM_EndCall(void);
+static void SIM_PollCallState(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void LCD_Show(const char *line1, const char *line2)
+{
+    LCD_Clear();
+    LCD_SetCursor(0, 0);
+    LCD_Print((char *)line1);
+    LCD_SetCursor(0, 1);
+    LCD_Print((char *)line2);
+}
 
+static void LCD_ShowWaiting(void)
+{
+    LCD_Show("SYSTEM READY", "WAITING FOR CALL");
+}
+
+static void LCD_ShowConnected(void)
+{
+    LCD_Show("CALL CONNECTED", "PRESS A KEY");
+}
+
+static void LCD_ShowDTMF(char key)
+{
+    snprintf(lcdLine2, sizeof(lcdLine2), "KEY: %c", key);
+    LCD_Show("DTMF RECEIVED", lcdLine2);
+    dtmfVisible = 1U;
+    dtmfVisibleUntil = HAL_GetTick() + 2000U;
+}
+
+static void LCD_ShowReboot(void)
+{
+    snprintf(
+        lcdLine2,
+        sizeof(lcdLine2),
+        "COUNT:%lu",
+        (unsigned long)modemResetCount
+    );
+
+    LCD_Show("MODEM REBOOT", lcdLine2);
+}
+
+static void SIM_ClearUARTError(void)
+{
+    __HAL_UART_CLEAR_PEFLAG(&huart3);
+    huart3.ErrorCode = HAL_UART_ERROR_NONE;
+}
+
+static void SIM_StartUARTReceiver(void)
+{
+    if (uartRxArmed == 0U)
+    {
+        if (HAL_UART_Receive_IT(
+                &huart3,
+                &uartRxByte,
+                1U
+            ) == HAL_OK)
+        {
+            uartRxArmed = 1U;
+        }
+    }
+}
+
+static void SIM_PumpUART(void)
+{
+    while (uartRxTail != uartRxHead)
+    {
+        uint8_t rxByte = uartRxRing[uartRxTail];
+
+        uartRxTail++;
+
+        if (uartRxTail >= UART_RX_RING_SIZE)
+        {
+            uartRxTail = 0U;
+        }
+
+        SIM_ProcessByte(rxByte);
+    }
+
+    SIM_StartUARTReceiver();
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    uint16_t nextHead;
+
+    if (huart->Instance != USART3)
+    {
+        return;
+    }
+
+    uartRxArmed = 0U;
+    nextHead = uartRxHead + 1U;
+
+    if (nextHead >= UART_RX_RING_SIZE)
+    {
+        nextHead = 0U;
+    }
+
+    if (nextHead != uartRxTail)
+    {
+        uartRxRing[uartRxHead] = uartRxByte;
+        uartRxHead = nextHead;
+    }
+    else
+    {
+        uartRxOverflowCount++;
+    }
+
+    SIM_StartUARTReceiver();
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance != USART3)
+    {
+        return;
+    }
+
+    uartRxArmed = 0U;
+    SIM_ClearUARTError();
+    SIM_StartUARTReceiver();
+}
+
+__weak void USART3_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&huart3);
+}
+
+static void SIM_EndCall(void)
+{
+    callState = CALL_IDLE;
+    clccCallFound = 0U;
+    noCallCount = 0U;
+    dtmfVisible = 0U;
+    LCD_Show("CALL ENDED", "PLEASE WAIT");
+    SIM_WatchUART(800U);
+    LCD_ShowWaiting();
+}
+
+static void SIM_ProcessLine(char *line)
+{
+    char *position;
+    int callId;
+    int callDirection;
+    int callStatus;
+    int callMode;
+    int callMultiparty;
+    char key;
+
+    if (line[0] == '\0')
+    {
+        return;
+    }
+
+    if (strcmp(line, "OK") == 0)
+    {
+        if ((commandPending != 0U) && (commandResult == 0))
+        {
+            commandResult = 1;
+        }
+
+        return;
+    }
+
+    if (strcmp(line, "ERROR") == 0)
+    {
+        if ((commandPending != 0U) && (commandResult == 0))
+        {
+            commandResult = -1;
+        }
+
+        return;
+    }
+
+    if (strcmp(line, "RDY") == 0)
+    {
+        if (monitorResetsEnabled != 0U)
+        {
+            modemResetCount++;
+            LCD_ShowReboot();
+        }
+
+        modemConfigured = 0U;
+        callState = CALL_IDLE;
+        clccCallFound = 0U;
+        noCallCount = 0U;
+        dtmfVisible = 0U;
+        nextConfigAttemptAt = HAL_GetTick() + 1500U;
+        return;
+    }
+
+    if (strcmp(line, "RING") == 0)
+    {
+        if (callState == CALL_IDLE)
+        {
+            callState = CALL_RINGING;
+            nextAnswerAttemptAt = HAL_GetTick();
+            LCD_Show("INCOMING CALL", "ANSWERING...");
+        }
+
+        return;
+    }
+
+    if ((strcmp(line, "NO CARRIER") == 0) ||
+        (strcmp(line, "BUSY") == 0) ||
+        (strcmp(line, "NO ANSWER") == 0))
+    {
+        if (callState != CALL_IDLE)
+        {
+            SIM_EndCall();
+        }
+
+        return;
+    }
+
+    position = strstr(line, "+DTMF:");
+
+    if (position != NULL)
+    {
+        position += 6;
+
+        while ((*position == ' ') || (*position == '\t'))
+        {
+            position++;
+        }
+
+        key = *position;
+
+        if (((key >= '0') && (key <= '9')) ||
+            (key == '*') ||
+            (key == '#') ||
+            (key == 'A') ||
+            (key == 'B') ||
+            (key == 'C') ||
+            (key == 'D'))
+        {
+            LCD_ShowDTMF(key);
+        }
+
+        return;
+    }
+
+    position = strstr(line, "+CLCC:");
+
+    if (position != NULL)
+    {
+        if (sscanf(
+                position,
+                "+CLCC: %d,%d,%d,%d,%d",
+                &callId,
+                &callDirection,
+                &callStatus,
+                &callMode,
+                &callMultiparty
+            ) >= 5)
+        {
+            clccCallFound = 1U;
+            noCallCount = 0U;
+
+            if ((callDirection == 1) && (callStatus == 4))
+            {
+                if (callState == CALL_IDLE)
+                {
+                    callState = CALL_RINGING;
+                    nextAnswerAttemptAt = HAL_GetTick();
+                    LCD_Show("INCOMING CALL", "ANSWERING...");
+                }
+            }
+            else if (callStatus == 0)
+            {
+                if (callState != CALL_ACTIVE)
+                {
+                    callState = CALL_ACTIVE;
+
+                    if (dtmfVisible == 0U)
+                    {
+                        LCD_ShowConnected();
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void SIM_ProcessByte(uint8_t rxByte)
+{
+    if ((rxByte == 0x00U) || (rxByte == 0xFFU))
+    {
+        return;
+    }
+
+    if ((rxByte == '\r') || (rxByte == '\n'))
+    {
+        if (uartLineIndex > 0U)
+        {
+            uartLine[uartLineIndex] = '\0';
+            SIM_ProcessLine(uartLine);
+            uartLineIndex = 0U;
+            uartLine[0] = '\0';
+        }
+
+        return;
+    }
+
+    if (uartLineIndex < (sizeof(uartLine) - 1U))
+    {
+        uartLine[uartLineIndex] = (char)rxByte;
+        uartLineIndex++;
+        uartLine[uartLineIndex] = '\0';
+    }
+    else
+    {
+        uartLineIndex = 0U;
+        uartLine[0] = '\0';
+    }
+}
+
+static void SIM_WatchUART(uint32_t duration)
+{
+    uint32_t startedAt;
+
+    startedAt = HAL_GetTick();
+
+    while ((HAL_GetTick() - startedAt) < duration)
+    {
+        SIM_PumpUART();
+        HAL_Delay(1U);
+    }
+
+    SIM_PumpUART();
+}
+
+static int8_t SIM_SendCommandAndWait(
+    const char *command,
+    uint32_t timeout
+)
+{
+    HAL_StatusTypeDef status;
+
+    SIM_WatchUART(50U);
+
+    commandResult = 0;
+    commandPending = 1U;
+
+    status = HAL_UART_Transmit(
+        &huart3,
+        (uint8_t *)command,
+        strlen(command),
+        1000U
+    );
+
+    if (status != HAL_OK)
+    {
+        commandPending = 0U;
+        return -2;
+    }
+
+    SIM_WatchUART(timeout);
+
+    commandPending = 0U;
+    return commandResult;
+}
+
+static uint8_t SIM_ConfigureModem(void)
+{
+    int8_t result;
+    uint32_t resetCountBefore;
+
+    resetCountBefore = modemResetCount;
+
+    LCD_Show("MODEM SETUP", "CHECKING AT");
+
+    result = SIM_SendCommandAndWait("AT\r", 800U);
+
+    if ((result != 1) ||
+        (modemResetCount != resetCountBefore))
+    {
+        return 0U;
+    }
+
+    SIM_SendCommandAndWait("ATE0\r", 800U);
+
+    if (modemResetCount != resetCountBefore)
+    {
+        return 0U;
+    }
+
+    LCD_Show("MODEM SETUP", "ENABLING DTMF");
+
+    result = SIM_SendCommandAndWait(
+        "AT+DDET=1,0,0\r",
+        1500U
+    );
+
+    if ((result != 1) ||
+        (modemResetCount != resetCountBefore))
+    {
+        return 0U;
+    }
+
+    modemConfigured = 1U;
+    callState = CALL_IDLE;
+    clccCallFound = 0U;
+    noCallCount = 0U;
+    nextClccAt = HAL_GetTick();
+
+    LCD_Show("DTMF ENABLED", "SYSTEM READY");
+    SIM_WatchUART(800U);
+    LCD_ShowWaiting();
+
+    return 1U;
+}
+
+static void SIM_PollCallState(void)
+{
+    int8_t result;
+
+    clccCallFound = 0U;
+
+    result = SIM_SendCommandAndWait(
+        "AT+CLCC\r",
+        700U
+    );
+
+    if (result == 1)
+    {
+        if ((clccCallFound == 0U) &&
+            (callState != CALL_IDLE))
+        {
+            if (noCallCount < 255U)
+            {
+                noCallCount++;
+            }
+
+            if (noCallCount >= 3U)
+            {
+                SIM_EndCall();
+            }
+        }
+        else if (clccCallFound != 0U)
+        {
+            noCallCount = 0U;
+        }
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -67,410 +553,116 @@ static void MX_USART3_UART_Init(void);
   */
 int main(void)
 {
-    HAL_Init();
-    SystemClock_Config();
-
-    MX_GPIO_Init();
-    MX_USART3_UART_Init();
-
-    LCD_Init();
-    LCD_Clear();
-
-    LCD_SetCursor(0, 0);
-    LCD_Print("SIM800C START");
-
-    LCD_SetCursor(0, 1);
-    LCD_Print("PLEASE WAIT");
-
-    HAL_Delay(15000);
-
-    uint8_t ddetCommand[] = "AT+DDET=1,0,0\r";
-    uint8_t clccCommand[] = "AT+CLCC\r";
-    uint8_t answerCommand[] = "ATA\r";
-    uint8_t rxByte = 0U;
-
-    char ddetResponse[128] = {0};
-    char uartResponse[512] = {0};
-    char dtmfDisplay[16] = {0};
-
-    char *clccPosition = NULL;
-    char *dtmfPosition = NULL;
-
-    uint16_t responseIndex = 0U;
-
-    uint8_t callState = 0U;
-    uint8_t callFound = 0U;
-    uint8_t validClccResponse = 0U;
-    uint8_t clccQueried = 0U;
-    uint8_t noCallCount = 0U;
-
-    char dtmfKey = '\0';
-
-    int callId = 0;
-    int callDirection = 0;
-    int callStatus = 0;
-    int callMode = 0;
-    int callMultiparty = 0;
-
-    uint32_t receiveStartedAt = 0U;
-    uint32_t nextClccAt = 0U;
-    uint32_t currentTime = 0U;
-
-    HAL_StatusTypeDef uartStatus;
-
-    while (HAL_UART_Receive(
-               &huart3,
-               &rxByte,
-               1,
-               10
-           ) == HAL_OK)
-    {
-    }
-
-    if (HAL_UART_GetError(&huart3) != HAL_UART_ERROR_NONE)
-    {
-        __HAL_UART_CLEAR_OREFLAG(&huart3);
-        huart3.ErrorCode = HAL_UART_ERROR_NONE;
-    }
-
-    uartStatus = HAL_UART_Transmit(
-        &huart3,
-        ddetCommand,
-        sizeof(ddetCommand) - 1U,
-        1000
-    );
-
-    if (uartStatus != HAL_OK)
-    {
-        LCD_Clear();
-        LCD_SetCursor(0, 0);
-        LCD_Print("DDET TX ERROR");
-
-        LCD_SetCursor(0, 1);
-        LCD_Print("RESET BOARD");
-
-        while (1)
-        {
-        }
-    }
-
-    responseIndex = 0U;
-    memset(ddetResponse, 0, sizeof(ddetResponse));
-
-    receiveStartedAt = HAL_GetTick();
-
-    while ((HAL_GetTick() - receiveStartedAt) < 1500U)
-    {
-        uartStatus = HAL_UART_Receive(
-            &huart3,
-            &rxByte,
-            1,
-            20
-        );
-
-        if (uartStatus == HAL_OK)
-        {
-            if (responseIndex < (sizeof(ddetResponse) - 1U))
-            {
-                ddetResponse[responseIndex] = (char)rxByte;
-                responseIndex++;
-                ddetResponse[responseIndex] = '\0';
-            }
-        }
-        else if (uartStatus == HAL_ERROR)
-        {
-            __HAL_UART_CLEAR_OREFLAG(&huart3);
-            huart3.ErrorCode = HAL_UART_ERROR_NONE;
-        }
-    }
-
-    if (strstr(ddetResponse, "OK") == NULL)
-    {
-        LCD_Clear();
-        LCD_SetCursor(0, 0);
-        LCD_Print("DDET FAILED");
-
-        LCD_SetCursor(0, 1);
-        LCD_Print("CHECK MODULE");
-
-        while (1)
-        {
-        }
-    }
-
-    LCD_Clear();
-    LCD_SetCursor(0, 0);
-    LCD_Print("DTMF ENABLED");
-
-    LCD_SetCursor(0, 1);
-    LCD_Print("SYSTEM READY");
-
-    HAL_Delay(1500);
-
-    LCD_Clear();
-    LCD_SetCursor(0, 0);
-    LCD_Print("SYSTEM READY");
-
-    LCD_SetCursor(0, 1);
-    LCD_Print("WAITING FOR CALL");
-
-    nextClccAt = HAL_GetTick();
-
-    while (1)
-    {
-        responseIndex = 0U;
-        clccQueried = 0U;
-        callFound = 0U;
-        validClccResponse = 0U;
-
-        callId = 0;
-        callDirection = 0;
-        callStatus = 0;
-        callMode = 0;
-        callMultiparty = 0;
-
-        memset(uartResponse, 0, sizeof(uartResponse));
-
-        receiveStartedAt = HAL_GetTick();
-
-        while ((HAL_GetTick() - receiveStartedAt) < 100U)
-        {
-            uartStatus = HAL_UART_Receive(
-                &huart3,
-                &rxByte,
-                1,
-                5
-            );
-
-            if (uartStatus == HAL_OK)
-            {
-                if (responseIndex < (sizeof(uartResponse) - 1U))
-                {
-                    uartResponse[responseIndex] = (char)rxByte;
-                    responseIndex++;
-                    uartResponse[responseIndex] = '\0';
-                }
-            }
-            else if (uartStatus == HAL_ERROR)
-            {
-                __HAL_UART_CLEAR_OREFLAG(&huart3);
-                huart3.ErrorCode = HAL_UART_ERROR_NONE;
-            }
-        }
-
-        currentTime = HAL_GetTick();
-
-        if ((int32_t)(currentTime - nextClccAt) >= 0)
-        {
-            clccQueried = 1U;
-
-            uartStatus = HAL_UART_Transmit(
-                &huart3,
-                clccCommand,
-                sizeof(clccCommand) - 1U,
-                1000
-            );
-
-            if (uartStatus == HAL_OK)
-            {
-                receiveStartedAt = HAL_GetTick();
-
-                while ((HAL_GetTick() - receiveStartedAt) < 700U)
-                {
-                    uartStatus = HAL_UART_Receive(
-                        &huart3,
-                        &rxByte,
-                        1,
-                        20
-                    );
-
-                    if (uartStatus == HAL_OK)
-                    {
-                        if (responseIndex < (sizeof(uartResponse) - 1U))
-                        {
-                            uartResponse[responseIndex] = (char)rxByte;
-                            responseIndex++;
-                            uartResponse[responseIndex] = '\0';
-                        }
-                    }
-                    else if (uartStatus == HAL_ERROR)
-                    {
-                        __HAL_UART_CLEAR_OREFLAG(&huart3);
-                        huart3.ErrorCode = HAL_UART_ERROR_NONE;
-                    }
-                }
-            }
-
-            nextClccAt = HAL_GetTick() + 200U;
-        }
-
-        dtmfPosition = uartResponse;
-
-        while ((dtmfPosition = strstr(dtmfPosition, "+DTMF:")) != NULL)
-        {
-            dtmfPosition += 6;
-
-            while ((*dtmfPosition == ' ') ||
-                   (*dtmfPosition == '\t'))
-            {
-                dtmfPosition++;
-            }
-
-            if (((*dtmfPosition >= '0') &&
-                 (*dtmfPosition <= '9')) ||
-                (*dtmfPosition == '*') ||
-                (*dtmfPosition == '#') ||
-                (*dtmfPosition == 'A') ||
-                (*dtmfPosition == 'B') ||
-                (*dtmfPosition == 'C') ||
-                (*dtmfPosition == 'D'))
-            {
-                dtmfKey = *dtmfPosition;
-
-                memset(dtmfDisplay, 0, sizeof(dtmfDisplay));
-
-                dtmfDisplay[0] = 'K';
-                dtmfDisplay[1] = 'E';
-                dtmfDisplay[2] = 'Y';
-                dtmfDisplay[3] = ':';
-                dtmfDisplay[4] = ' ';
-                dtmfDisplay[5] = dtmfKey;
-                dtmfDisplay[6] = '\0';
-
-                LCD_Clear();
-                LCD_SetCursor(0, 0);
-                LCD_Print("DTMF RECEIVED");
-
-                LCD_SetCursor(0, 1);
-                LCD_Print(dtmfDisplay);
-            }
-
-            dtmfPosition++;
-        }
-
-        if (clccQueried != 0U)
-        {
-            if (strstr(uartResponse, "OK") != NULL)
-            {
-                validClccResponse = 1U;
-            }
-
-            clccPosition = strstr(uartResponse, "+CLCC:");
-
-            if (clccPosition != NULL)
-            {
-                if (sscanf(
-                        clccPosition,
-                        "+CLCC: %d,%d,%d,%d,%d",
-                        &callId,
-                        &callDirection,
-                        &callStatus,
-                        &callMode,
-                        &callMultiparty
-                    ) >= 5)
-                {
-                    callFound = 1U;
-                }
-            }
-
-            if ((callFound != 0U) &&
-                (callDirection == 1) &&
-                (callStatus == 4) &&
-                (callState == 0U))
-            {
-                LCD_Clear();
-                LCD_SetCursor(0, 0);
-                LCD_Print("INCOMING CALL");
-
-                LCD_SetCursor(0, 1);
-                LCD_Print("ANSWERING CALL");
-
-                uartStatus = HAL_UART_Transmit(
-                    &huart3,
-                    answerCommand,
-                    sizeof(answerCommand) - 1U,
-                    1000
-                );
-
-                if (uartStatus == HAL_OK)
-                {
-                    callState = 1U;
-                    noCallCount = 0U;
-
-                    nextClccAt = HAL_GetTick() + 1500U;
-
-                    LCD_Clear();
-                    LCD_SetCursor(0, 0);
-                    LCD_Print("CALL CONNECTED");
-
-                    LCD_SetCursor(0, 1);
-                    LCD_Print("PRESS A KEY");
-                }
-                else
-                {
-                    callState = 0U;
-
-                    LCD_Clear();
-                    LCD_SetCursor(0, 0);
-                    LCD_Print("ATA TX ERROR");
-
-                    LCD_SetCursor(0, 1);
-                    LCD_Print("CALL NOT ANSWER");
-                }
-            }
-            else if (callFound != 0U)
-            {
-                noCallCount = 0U;
-
-                if ((callStatus == 0) &&
-                    (callState == 0U))
-                {
-                    callState = 1U;
-
-                    LCD_Clear();
-                    LCD_SetCursor(0, 0);
-                    LCD_Print("CALL CONNECTED");
-
-                    LCD_SetCursor(0, 1);
-                    LCD_Print("PRESS A KEY");
-                }
-            }
-            else if ((validClccResponse != 0U) &&
-                     (callState != 0U))
-            {
-                if (noCallCount < 255U)
-                {
-                    noCallCount++;
-                }
-
-                if (noCallCount >= 3U)
-                {
-                    callState = 0U;
-                    noCallCount = 0U;
-                    dtmfKey = '\0';
-
-                    LCD_Clear();
-                    LCD_SetCursor(0, 0);
-                    LCD_Print("CALL ENDED");
-
-                    LCD_SetCursor(0, 1);
-                    LCD_Print("PLEASE WAIT");
-
-                    HAL_Delay(1000);
-
-                    LCD_Clear();
-                    LCD_SetCursor(0, 0);
-                    LCD_Print("SYSTEM READY");
-
-                    LCD_SetCursor(0, 1);
-                    LCD_Print("WAITING FOR CALL");
-                }
-            }
-        }
-
-        HAL_Delay(50);
-    }
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_USART3_UART_Init();
+  /* USER CODE BEGIN 2 */
+  HAL_NVIC_SetPriority(USART3_IRQn, 0U, 0U);
+  HAL_NVIC_EnableIRQ(USART3_IRQn);
+  SIM_StartUARTReceiver();
+
+  LCD_Init();
+  LCD_Show("SIM800C START", "PLEASE WAIT");
+
+  SIM_WatchUART(15000U);
+
+  modemResetCount = 0U;
+  monitorResetsEnabled = 1U;
+  nextConfigAttemptAt = HAL_GetTick();
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+      uint32_t currentTime;
+      int8_t answerResult;
+
+      SIM_WatchUART(20U);
+      currentTime = HAL_GetTick();
+
+      if ((dtmfVisible != 0U) &&
+          ((int32_t)(currentTime - dtmfVisibleUntil) >= 0))
+      {
+          dtmfVisible = 0U;
+
+          if (callState == CALL_ACTIVE)
+          {
+              LCD_ShowConnected();
+          }
+      }
+
+      if (modemConfigured == 0U)
+      {
+          if ((int32_t)(currentTime - nextConfigAttemptAt) >= 0)
+          {
+              if (SIM_ConfigureModem() == 0U)
+              {
+                  LCD_Show("MODEM NOT READY", "RETRYING...");
+                  nextConfigAttemptAt = HAL_GetTick() + 2000U;
+              }
+          }
+
+          continue;
+      }
+
+      if ((callState == CALL_RINGING) &&
+          ((int32_t)(currentTime - nextAnswerAttemptAt) >= 0))
+      {
+          LCD_Show("INCOMING CALL", "ANSWERING...");
+
+          answerResult = SIM_SendCommandAndWait(
+              "ATA\r",
+              1500U
+          );
+
+          if (answerResult == 1)
+          {
+              callState = CALL_ANSWERING;
+              noCallCount = 0U;
+              LCD_Show("ANSWER SENT", "WAITING...");
+              nextClccAt = HAL_GetTick();
+          }
+          else
+          {
+              nextAnswerAttemptAt = HAL_GetTick() + 1500U;
+          }
+      }
+
+      currentTime = HAL_GetTick();
+
+      if ((int32_t)(currentTime - nextClccAt) >= 0)
+      {
+          SIM_PollCallState();
+          nextClccAt = HAL_GetTick() + 1000U;
+      }
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
 }
+
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -485,8 +677,8 @@ void SystemClock_Config(void)
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
+  /** Initializes the RCC Oscillators according to the specified parameters in the
+  * RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
@@ -603,7 +795,7 @@ void Error_Handler(void)
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
   * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
+  * @param  line: source line number
   * @retval None
   */
 void assert_failed(uint8_t *file, uint32_t line)
