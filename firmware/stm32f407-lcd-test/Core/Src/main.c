@@ -76,6 +76,9 @@ static uint32_t nextAnswerAttemptAt = 0U;
 
 static uint8_t dtmfVisible = 0U;
 static uint32_t dtmfVisibleUntil = 0U;
+static uint8_t dtmfRearmRequested = 0U;
+static uint8_t dtmfRearmAttempts = 0U;
+static uint32_t nextDtmfRearmAt = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -113,7 +116,14 @@ static void LCD_Show(const char *line1, const char *line2)
 
 static void LCD_ShowWaiting(void)
 {
-    LCD_Show("SYSTEM READY", "WAITING FOR CALL");
+    snprintf(
+        lcdLine2,
+        sizeof(lcdLine2),
+        "RESETS:%lu",
+        (unsigned long)modemResetCount
+    );
+
+    LCD_Show("WAITING FOR CALL", lcdLine2);
 }
 
 static void LCD_ShowConnected(void)
@@ -234,6 +244,8 @@ static void SIM_EndCall(void)
     clccCallFound = 0U;
     noCallCount = 0U;
     dtmfVisible = 0U;
+    dtmfRearmRequested = 0U;
+    dtmfRearmAttempts = 0U;
     LCD_Show("CALL ENDED", "PLEASE WAIT");
     SIM_WatchUART(800U);
     LCD_ShowWaiting();
@@ -287,6 +299,8 @@ static void SIM_ProcessLine(char *line)
         clccCallFound = 0U;
         noCallCount = 0U;
         dtmfVisible = 0U;
+        dtmfRearmRequested = 0U;
+        dtmfRearmAttempts = 0U;
         nextConfigAttemptAt = HAL_GetTick() + 1500U;
         return;
     }
@@ -296,8 +310,11 @@ static void SIM_ProcessLine(char *line)
         if (callState == CALL_IDLE)
         {
             callState = CALL_RINGING;
+            dtmfRearmRequested = 1U;
+            dtmfRearmAttempts = 0U;
+            nextDtmfRearmAt = HAL_GetTick();
             nextAnswerAttemptAt = HAL_GetTick();
-            LCD_Show("INCOMING CALL", "ANSWERING...");
+            LCD_Show("INCOMING CALL", "DTMF SETUP...");
         }
 
         return;
@@ -364,8 +381,11 @@ static void SIM_ProcessLine(char *line)
                 if (callState == CALL_IDLE)
                 {
                     callState = CALL_RINGING;
+                    dtmfRearmRequested = 1U;
+                    dtmfRearmAttempts = 0U;
+                    nextDtmfRearmAt = HAL_GetTick();
                     nextAnswerAttemptAt = HAL_GetTick();
-                    LCD_Show("INCOMING CALL", "ANSWERING...");
+                    LCD_Show("INCOMING CALL", "DTMF SETUP...");
                 }
             }
             else if (callStatus == 0)
@@ -373,10 +393,13 @@ static void SIM_ProcessLine(char *line)
                 if (callState != CALL_ACTIVE)
                 {
                     callState = CALL_ACTIVE;
+                    dtmfRearmRequested = 1U;
+                    dtmfRearmAttempts = 0U;
+                    nextDtmfRearmAt = HAL_GetTick();
 
                     if (dtmfVisible == 0U)
                     {
-                        LCD_ShowConnected();
+                        LCD_Show("CALL CONNECTED", "DTMF SETUP...");
                     }
                 }
             }
@@ -504,6 +527,8 @@ static uint8_t SIM_ConfigureModem(void)
     callState = CALL_IDLE;
     clccCallFound = 0U;
     noCallCount = 0U;
+    dtmfRearmRequested = 0U;
+    dtmfRearmAttempts = 0U;
     nextClccAt = HAL_GetTick();
 
     LCD_Show("DTMF ENABLED", "SYSTEM READY");
@@ -620,6 +645,53 @@ int main(void)
               {
                   LCD_Show("MODEM NOT READY", "RETRYING...");
                   nextConfigAttemptAt = HAL_GetTick() + 2000U;
+              }
+          }
+
+          continue;
+      }
+
+      if ((dtmfRearmRequested != 0U) &&
+          ((int32_t)(currentTime - nextDtmfRearmAt) >= 0))
+      {
+          int8_t dtmfResult;
+
+          dtmfResult = SIM_SendCommandAndWait(
+              "AT+DDET=1,0,0\r",
+              1500U
+          );
+
+          if (dtmfResult == 1)
+          {
+              dtmfRearmRequested = 0U;
+              dtmfRearmAttempts = 0U;
+
+              if (callState == CALL_ACTIVE)
+              {
+                  LCD_ShowConnected();
+              }
+              else if (callState == CALL_RINGING)
+              {
+                  LCD_Show("DTMF ENABLED", "ANSWERING...");
+              }
+          }
+          else
+          {
+              dtmfRearmAttempts++;
+
+              if (dtmfRearmAttempts >= 3U)
+              {
+                  dtmfRearmRequested = 0U;
+                  dtmfRearmAttempts = 0U;
+
+                  if (callState == CALL_ACTIVE)
+                  {
+                      LCD_ShowConnected();
+                  }
+              }
+              else
+              {
+                  nextDtmfRearmAt = HAL_GetTick() + 500U;
               }
           }
 
