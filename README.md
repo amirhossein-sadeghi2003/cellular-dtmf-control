@@ -1,91 +1,129 @@
 # Cellular DTMF Control
 
-An embedded control system that uses cellular voice calls and DTMF keypad tones to control outputs through an STM32F407 microcontroller.
+An embedded cellular control system based on an **STM32F407VGT6** microcontroller and a **SIM800C GSM module**.
 
-The project currently focuses on integrating an **SIM800C cellular module** with an **STM32F407VGT6**, receiving modem messages through UART, and displaying the results on a character LCD.
+The system receives incoming cellular voice calls, answers them automatically, detects DTMF keypad tones, and forwards the detected keys to the STM32 through UART. The received key can then be displayed or mapped to application-specific outputs such as LEDs, relays, or control commands.
 
 ---
 
-## Project Goal
-
-The final system is intended to operate as follows:
+## System Overview
 
 ```text
 Incoming cellular call
         ↓
 SIM800C receives the call
         ↓
+STM32 detects RING over UART
+        ↓
+STM32 sends ATA
+        ↓
+Call becomes active
+        ↓
 Caller presses a DTMF key
         ↓
-SIM800C reports the received key through UART
+SIM800C reports +DTMF
         ↓
-STM32F407 processes the message
+STM32 processes the key
         ↓
-LCD, LED, or relay output is controlled
+LCD / relay / output control
 ```
 
-For example, pressing the `1` key during a call may produce a message similar to:
+Example modem notification:
 
 ```text
-+DTMF: 1
++DTMF: 5
 ```
 
-The STM32 can then display the received digit or use it to control an output.
+The STM32 can display the received key or map it to a device command.
 
 ---
 
 ## Current Project Status
 
-The following stages have been completed:
+The cellular call and DTMF path has been validated successfully on real hardware using diagnostic firmware.
 
-- Character LCD interface implemented in 4-bit mode
-- LCD successfully tested on the STM32F407 board
-- USART3 configured on the correct board pins
-- UART communication established between STM32F407 and SIM800C
-- `AT` command successfully transmitted to the module
-- `OK` response successfully received from the module
-- UART test result displayed on the LCD
-- Initial DTMF feasibility studies completed
-- Two-way audio hardware requirements investigated
+Verified functionality:
 
-Verified LCD output:
+- HD44780-compatible character LCD in 4-bit mode
+- STM32F407 USART3 communication with SIM800C
+- SIM-card detection
+- GSM network registration
+- Signal-strength query
+- Incoming-call detection using `RING`
+- Automatic call answering using `ATA`
+- Active-call verification using `AT+CLCC`
+- Received-DTMF reporting using `AT+DDET`
+- DTMF key display on the LCD
+- Multiple consecutive incoming calls
+- Interrupt-driven UART reception
+- Asynchronous modem-response capture
+
+The validated diagnostic flow successfully handled consecutive incoming calls and displayed DTMF keys during each active call.
+
+The production firmware on `main` is currently being refined using this validated sequence as the reference implementation.
+
+The following DTMF symbols can be handled by the parser:
 
 ```text
-SIM800C OK
-UART3 WORKING
+0 1 2 3 4 5 6 7 8 9
+* #
+A B C D
 ```
 
-The UART test was completed without a SIM card. Network registration, voice calls, and received DTMF reporting have not yet been tested practically.
+Standard mobile-phone keypads normally provide:
+
+```text
+0-9
+*
+#
+```
+
+---
+
+## Hardware Prototype
+
+### STM32F407 + SIM800C HW-537
+
+![Hardware overview](docs/images/hardware/hardware-overview.png)
+
+The current prototype uses an STM32F407VGT6 development board connected to a SIM800C-based **HW-537** carrier board.
+
+### SIM800C HW-537 Module
+
+![SIM800C HW-537 module](docs/images/hardware/sim800c-hw537-module-redacted.jpg)
+
+Device-specific identifiers in the public image have been redacted.
+
+### Incoming Call and DTMF Test
+
+![DTMF call test](docs/images/hardware/dtmf-call-test.png)
+
+The character LCD is used to display call state and received DTMF keys during testing.
 
 ---
 
 ## Hardware
 
-The current hardware platform includes:
+Current hardware includes:
 
 - STM32F407VGT6 microcontroller
-- Dideban v2.0 Board No. 13
-- SIM800C cellular module on a custom interface board
-- Character LCD compatible with the HD44780 interface
+- Dideban v2.0 development board
+- SIM800C GSM/GPRS module on an HW-537 carrier board
+- HD44780-compatible character LCD
 - GSM antenna
 - ST-LINK V2 programmer
-- External power supply
-
-Hardware required for the next stage:
-
-- Active SIM card with voice-call capability
-- Available GSM network coverage
-- A second phone for test calls
-- Microphone and audio output hardware if two-way voice communication is required
+- External regulated power supply
+- Active SIM card with GSM voice-call support
+- Separate phone for incoming-call and DTMF testing
 
 ---
 
 ## UART Connection
 
-The SIM800C is connected to `USART3` of the STM32F407 through the PCB.
+The SIM800C communicates with `USART3` of the STM32F407.
 
 | Signal | STM32F407 pin | Direction |
-|---|---|---|
+| --- | --- | --- |
 | USART3_TX | PD8 | STM32 → SIM800C |
 | USART3_RX | PD9 | SIM800C → STM32 |
 
@@ -100,26 +138,128 @@ Hardware flow control: Disabled
 Mode:                 Transmit and Receive
 ```
 
-The UART connection is used for commands and status messages such as:
+Typical modem messages include:
 
 ```text
-AT
 OK
 RING
 NO CARRIER
++CLCC: ...
++DTMF: 5
+```
+
+UART is used for AT commands, modem responses, and unsolicited result codes. Raw voice audio does not pass through USART3.
+
+---
+
+## UART Receive Architecture
+
+Cellular modem messages arrive asynchronously, so the production firmware uses interrupt-driven UART reception and a circular receive buffer.
+
+The architecture is:
+
+```text
+USART3 RX interrupt
+        ↓
+Single received byte
+        ↓
+UART circular buffer
+        ↓
+Main-loop parser
+        ↓
+Complete modem line
+        ↓
+Command / URC processing
+```
+
+This allows unsolicited modem messages such as:
+
+```text
+RING
+NO CARRIER
++DTMF: 3
+```
+
+to be captured while the application continues running.
+
+During debugging, simplified diagnostic firmware was also used to isolate UART and modem behavior independently from the production state machine.
+
+---
+
+## Validated Call Flow
+
+The simplified sequence that was successfully validated on real hardware is:
+
+```text
+Disable command echo
+        ↓
+Enable DTMF reporting
+        ↓
+Wait for RING
+        ↓
+Send ATA
+        ↓
+Wait for call establishment
+        ↓
+Query AT+CLCC
+        ↓
+Confirm active call
+        ↓
+Receive +DTMF notifications
+```
+
+For an incoming active voice call, `AT+CLCC` was observed with:
+
+```text
+direction = 1
+status    = 0
+```
+
+After the call becomes active, DTMF notifications are received asynchronously over UART.
+
+---
+
+## DTMF Control
+
+SIM800C DTMF reporting is enabled using:
+
+```text
+AT+DDET=1,0,0
+```
+
+During an active call, pressing a keypad digit can produce a UART notification such as:
+
+```text
 +DTMF: 1
 ```
 
-It does not carry the raw voice signal.
+or:
+
+```text
++DTMF: #
+```
+
+The firmware validates the received symbol and can map it to an application action.
+
+Example future mappings:
+
+```text
+1      → Output 1 ON
+2      → Output 1 OFF
+11#    → Command sequence
+21#    → Another application command
+```
+
+Multi-digit command sequences can therefore be implemented in the STM32 application layer using standard DTMF symbols.
 
 ---
 
 ## LCD Connection
 
-The LCD is operated in 4-bit mode.
+The LCD operates in 4-bit mode.
 
 | LCD signal | STM32F407 pin |
-|---|---|
+| --- | --- |
 | RS | PE7 |
 | RW | PE8 |
 | EN | PE9 |
@@ -128,7 +268,7 @@ The LCD is operated in 4-bit mode.
 | D6 | PE12 |
 | D7 | PE13 |
 
-The LCD driver is divided into the following files:
+LCD-related firmware files include:
 
 ```text
 Core/Inc/lcd.h
@@ -136,98 +276,61 @@ Core/Src/lcd.c
 Core/Src/main.c
 ```
 
----
-
-## Verified UART Test
-
-The current firmware sends the following command to the SIM800C:
-
-```c
-const uint8_t atCommand[] = "AT\r\n";
-```
-
-The command is transmitted through `USART3`:
-
-```c
-HAL_UART_Transmit(
-    &huart3,
-    (uint8_t *)atCommand,
-    sizeof(atCommand) - 1U,
-    1000
-);
-```
-
-The response is received into a buffer:
-
-```c
-HAL_UART_Receive(
-    &huart3,
-    simResponse,
-    sizeof(simResponse) - 1U,
-    3000
-);
-```
-
-The firmware searches the received response for `OK`:
-
-```c
-if (strstr((char *)simResponse, "OK") != NULL)
-{
-    LCD_Print("SIM800C OK");
-}
-```
-
-This test confirmed:
-
-- SIM800C power and startup
-- Correct UART baud rate
-- Correct USART3 pin assignment
-- STM32-to-SIM800C transmission
-- SIM800C-to-STM32 reception
-- Successful LCD status display
-
-The current receive method is blocking and is suitable only for the initial test. Interrupt- or DMA-based UART reception will be used for continuous modem messages.
-
----
-
-## Planned DTMF Test
-
-After installing the SIM card, the following sequence will be tested:
+Example displays used during development include:
 
 ```text
-1. Check SIM-card status using AT+CPIN?
-2. Check network registration using AT+CREG?
-3. Check signal strength using AT+CSQ
-4. Receive an incoming voice call
-5. Detect the RING message
-6. Answer the call using ATA
-7. Enable received-DTMF reporting
-8. Press a key on the calling phone
-9. Receive the DTMF message through UART
-10. Display the received key on the LCD
-11. Use the key to control an LED or relay
+WAITING FOR CALL
 ```
 
-The final UART implementation should support:
+```text
+CALL CONNECTED
+PRESS A KEY
+```
 
-- Continuous reception
-- Complete message detection
-- Interrupt or DMA reception
-- A linear or circular receive buffer
-- Prevention of duplicate DTMF key registration
+```text
+DTMF RECEIVED
+KEY: 5
+```
+
+---
+
+## Modem Commands Used
+
+The project currently uses or has tested commands including:
+
+```text
+AT
+ATE0
+AT+CPIN?
+AT+CSQ
+AT+CREG?
+AT+DDET=1,0,0
+ATA
+AT+CLCC
+```
+
+These commands are used for:
+
+- Basic modem communication
+- SIM-card readiness
+- GSM signal strength
+- Network registration
+- DTMF reporting
+- Answering incoming calls
+- Monitoring call state
 
 ---
 
 ## Two-Way Audio
 
-UART communication and voice communication use separate paths.
+UART communication and voice communication use separate electrical paths.
 
-### Audio from the board to the remote phone
+### Local board to remote caller
 
 ```text
 Local voice
     ↓
-Microphone and input circuit
+Microphone interface
     ↓
 MICP / MICN
     ↓
@@ -236,7 +339,7 @@ SIM800C
 Cellular network
 ```
 
-### Audio from the remote phone to the board
+### Remote caller to local board
 
 ```text
 Cellular network
@@ -245,23 +348,12 @@ SIM800C
     ↓
 SPKP / SPKN
     ↓
-Earpiece or audio amplifier and speaker
+Audio amplifier / earpiece / speaker
 ```
 
-The audio pins are differential. They must not be connected to ground or external audio components without first checking the module interface circuit.
+The SIM800C audio pins are differential and require an appropriate analog interface.
 
-No clearly labeled `MIC` or `SPK` connector was identified on the current PCB. Therefore, the following pins must be traced on the custom SIM800C interface board before connecting audio hardware:
-
-```text
-MICP
-MICN
-SPKP
-SPKN
-```
-
-The schematic should be checked first. If the schematic is incomplete, continuity testing can be performed with the board completely powered off.
-
-For normal two-way voice communication, the audio signal does not need to pass through the STM32 ADC or DAC. The STM32 only manages the call through UART.
+Two-way audio hardware is outside the current DTMF-control validation path and remains a separate integration task.
 
 ---
 
@@ -270,42 +362,41 @@ For normal two-way voice communication, the audio signal does not need to pass t
 ```text
 cellular-dtmf-control/
 ├── docs/
+│   ├── en/
+│   │   ├── docx/
+│   │   └── pdf/
 │   ├── fa/
 │   │   ├── docx/
-│   │   │   ├── SIM5300EA-DTMF-STM32F407-report.docx
-│   │   │   ├── SIM800C-DTMF-STM32F407-report.docx
-│   │   │   └── SIM800C-two-way-audio-hardware-report-fa.docx
 │   │   └── pdf/
-│   │       ├── feasibility-study-fa.pdf
-│   │       ├── SIM5300EA-DTMF-STM32F407-report.pdf
-│   │       ├── SIM800C-DTMF-STM32F407-report.pdf
-│   │       └── SIM800C-two-way-audio-hardware-report-fa.pdf
-│   └── en/
-│       ├── docx/
-│       └── pdf/
+│   └── images/
+│       └── hardware/
+│           ├── hardware-overview.png
+│           ├── dtmf-call-test.png
+│           └── sim800c-hw537-module-redacted.jpg
 ├── firmware/
 │   └── stm32f407-lcd-test/
-│       ├── Core/
-│       ├── Drivers/
-│       └── stm32f407-lcd-test.ioc
-├── .gitignore
 └── README.md
 ```
-
-The `fa` directory contains Persian reports. English versions will be added gradually to the `en` directory.
 
 ---
 
 ## Technical Reports
 
-| Report | Persian PDF | Editable Persian Version | English Version |
-|---|---|---|---|
-| Initial cellular DTMF feasibility study | [PDF](docs/fa/pdf/feasibility-study-fa.pdf) | — | Planned |
-| SIM5300EA DTMF study | [PDF](docs/fa/pdf/SIM5300EA-DTMF-STM32F407-report.pdf) | [DOCX](docs/fa/docx/SIM5300EA-DTMF-STM32F407-report.docx) | Planned |
-| SIM800C DTMF feasibility study | [PDF](docs/fa/pdf/SIM800C-DTMF-STM32F407-report.pdf) | [DOCX](docs/fa/docx/SIM800C-DTMF-STM32F407-report.docx) | Planned |
-| SIM800C two-way audio hardware study | [PDF](docs/fa/pdf/SIM800C-two-way-audio-hardware-report-fa.pdf) | [DOCX](docs/fa/docx/SIM800C-two-way-audio-hardware-report-fa.docx) | Planned |
+The repository contains technical studies and hardware documentation produced during development.
 
-PDF files are intended for normal viewing. DOCX files are retained as editable report sources.
+Reports are organized under:
+
+```text
+docs/
+├── en/
+│   ├── docx/
+│   └── pdf/
+└── fa/
+    ├── docx/
+    └── pdf/
+```
+
+Persian (`fa`) and English (`en`) documentation are kept separately where available.
 
 ---
 
@@ -316,7 +407,8 @@ PDF files are intended for normal viewing. DOCX files are retained as editable r
 - STM32CubeF4 firmware package
 - STM32CubeProgrammer
 - ST-LINK V2
-- Git and GitHub
+- Git
+- GitHub
 
 ---
 
@@ -326,51 +418,98 @@ PDF files are intended for normal viewing. DOCX files are retained as editable r
 
 ```bash
 git clone https://github.com/amirhossein-sadeghi2003/cellular-dtmf-control.git
+cd cellular-dtmf-control
 ```
 
-2. Open the CubeMX project:
+2. Open the STM32CubeMX project:
 
 ```text
 firmware/stm32f407-lcd-test/stm32f407-lcd-test.ioc
 ```
 
-3. Generate the project code if required.
+3. Generate or update the STM32 project if required.
 
 4. Open the generated project in STM32CubeIDE.
 
 5. Build the firmware.
 
-6. Connect the STM32 board through SWD.
+6. Connect the STM32F407 board through SWD using ST-LINK.
 
-7. Flash and run the application.
-
----
-
-## Next Steps
-
-- Install and verify the SIM card
-- Confirm network registration
-- Measure GSM signal strength
-- Test incoming calls
-- Answer calls through AT commands
-- Enable and verify DTMF reception
-- Display received digits on the LCD
-- Control an LED or relay using DTMF keys
-- Replace blocking UART reception with interrupt or DMA reception
-- Trace the SIM800C microphone and speaker pins
-- Test two-way audio if required
-- Add English versions of the technical reports
+7. Flash the firmware and run the target.
 
 ---
 
-## Safety and Hardware Notes
+## Validation Notes
 
-- Power off the board before inserting or removing the SIM card.
-- Keep the GSM antenna connected during network tests.
-- Use a stable supply capable of supporting the SIM800C current requirements.
-- Do not power the main board from the ST-LINK `5V` pin unless the board design explicitly supports it.
-- Do not connect `SPKP`, `SPKN`, `MICP`, or `MICN` based only on visual assumptions.
-- Verify all audio paths through the schematic or continuity testing before soldering.
+A simplified diagnostic firmware was used during hardware debugging to isolate each stage independently.
+
+The following stages were individually verified:
+
+```text
+AT communication
+SIM readiness
+signal strength
+network registration
+incoming RING
+ATA call answering
+active-call CLCC
+DTMF reception
+repeated incoming calls
+```
+
+The known-good diagnostic implementation is preserved in the Git branch:
+
+```text
+debug/hw537-known-good-dtmf
+```
+
+This branch serves as a validated reference while the production firmware on `main` is simplified and refined.
+
+---
+
+## Production Firmware Refinement
+
+Testing showed that the basic modem and hardware path is functional.
+
+The current production state machine contains additional DTMF reconfiguration and command-wait logic that is being reviewed against the simpler validated sequence.
+
+Current refinement targets include:
+
+- Avoiding unnecessary DTMF reconfiguration during call handling
+- Simplifying the incoming-call state machine
+- Improving AT-command response timing
+- Reducing unnecessary command polling
+- Preserving reliable interrupt-driven UART reception
+- Improving modem-reset and error recovery
+
+---
+
+## Future Work
+
+Planned development includes:
+
+- Finalizing the production call-state machine
+- Mapping DTMF keys to physical outputs
+- Relay / LED control
+- Configurable multi-digit DTMF commands
+- Call authorization
+- Caller-number validation
+- Persistent configuration
+- Fault and modem-reset recovery
+- Optional two-way audio hardware
+- Graphical display / menu integration
+
+---
+
+## Safety Note
+
+Cellular modules can draw significant current pulses during GSM transmission.
+
+Use a properly regulated supply, adequate local decoupling, short power paths, and a common ground between the STM32 and modem interface.
+
+Do not connect power to undocumented module pins without verifying the exact carrier-board revision and its schematic.
+
+Power should be disconnected before modifying modem wiring or SIM-card hardware.
 
 ---
 
