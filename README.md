@@ -40,7 +40,7 @@ The STM32 can display the received key or map it to a device command.
 
 ## Current Project Status
 
-The cellular call and DTMF path has been validated successfully on real hardware using diagnostic firmware.
+The cellular call and DTMF path has been validated successfully on real hardware and the validated implementation is now used as the production firmware on `main`.
 
 Verified functionality:
 
@@ -58,9 +58,9 @@ Verified functionality:
 - Interrupt-driven UART reception
 - Asynchronous modem-response capture
 
-The validated diagnostic flow successfully handled consecutive incoming calls and displayed DTMF keys during each active call.
+The validated firmware successfully handled consecutive incoming calls and displayed DTMF keys during each active call.
 
-The production firmware on `main` is currently being refined using this validated sequence as the reference implementation.
+The production firmware on `main` now uses this validated call and DTMF sequence.
 
 The following DTMF symbols can be handled by the parser:
 
@@ -463,24 +463,29 @@ The known-good diagnostic implementation is preserved in the Git branch:
 debug/hw537-known-good-dtmf
 ```
 
-This branch serves as a validated reference while the production firmware on `main` is simplified and refined.
+This branch preserves the original known-good diagnostic checkpoint used during hardware debugging.
 
 ---
 
-## Production Firmware Refinement
+## Production Firmware Status
 
-Testing showed that the basic modem and hardware path is functional.
+The core cellular call and DTMF path has been validated successfully on real hardware.
 
-The current production state machine contains additional DTMF reconfiguration and command-wait logic that is being reviewed against the simpler validated sequence.
+The production firmware on `main` now uses the hardware-validated call flow for:
 
-Current refinement targets include:
+- Incoming-call detection
+- Automatic call answering
+- Active-call confirmation
+- DTMF reception
+- Consecutive incoming calls
+- Interrupt-driven UART reception
 
-- Avoiding unnecessary DTMF reconfiguration during call handling
-- Simplifying the incoming-call state machine
+Further robustness improvements may include:
+
 - Improving AT-command response timing
 - Reducing unnecessary command polling
-- Preserving reliable interrupt-driven UART reception
-- Improving modem-reset and error recovery
+- Improving modem-reset and UART error recovery
+- Long-duration stability testing
 
 ---
 
@@ -488,14 +493,12 @@ Current refinement targets include:
 
 Planned development includes:
 
-- Finalizing the production call-state machine
 - Mapping DTMF keys to physical outputs
 - Relay / LED control
 - Configurable multi-digit DTMF commands
 - Call authorization
 - Caller-number validation
 - Persistent configuration
-- Fault and modem-reset recovery
 - Optional two-way audio hardware
 - Graphical display / menu integration
 
