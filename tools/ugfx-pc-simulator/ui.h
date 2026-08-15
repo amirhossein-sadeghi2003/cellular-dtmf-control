@@ -1,6 +1,8 @@
 #ifndef UI_H
 #define UI_H
 
+#include "ui_model.h"
+
 typedef enum {
     UI_KEY_NONE = 0,
     UI_KEY_UP,
@@ -16,7 +18,8 @@ typedef enum {
     UI_ACTION_EXIT
 } UiAction;
 
-void uiInit(void);
+void uiInit(UiModel *model);
+void uiRefresh(void);
 void uiShowError(const char *message);
 UiAction uiHandleKey(UiKey key);
 

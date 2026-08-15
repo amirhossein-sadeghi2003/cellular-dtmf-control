@@ -30,7 +30,7 @@ CXXFLAGS =
 ASFLAGS  =
 LDFLAGS  =
 
-SRC      = main.c ui.c
+SRC      = main.c ui.c ui_model.c
 OBJS     =
 DEFS     =
 LIBS     =
