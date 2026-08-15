@@ -272,6 +272,38 @@ static UiAction processRawKey(UiModel *model, gU8 raw_key)
 
     return uiHandleKey(ui_key);
 }
+static void updateCallDuration(
+    UiModel *model,
+    gTicks *last_tick,
+    gTicks ticks_per_second)
+{
+    gTicks now;
+    gTicks elapsed_ticks;
+    gTicks elapsed_seconds;
+
+    now = gfxSystemTicks();
+
+    if (model->call_state != UI_CALL_ACTIVE) {
+        *last_tick = now;
+        return;
+    }
+
+    elapsed_ticks = now - *last_tick;
+
+    if (!ticks_per_second ||
+        elapsed_ticks < ticks_per_second) {
+        return;
+    }
+
+    elapsed_seconds = elapsed_ticks / ticks_per_second;
+
+    model->call_duration_seconds +=
+        (uint32_t)elapsed_seconds;
+
+    *last_tick += elapsed_seconds * ticks_per_second;
+
+    uiRefresh();
+}
 
 int main(void)
 {
@@ -285,11 +317,15 @@ int main(void)
     UiAction action;
 
     gU16 i;
+    gTicks last_duration_tick;
+    gTicks ticks_per_second;
 
     gfxInit();
 
     initializeSimulatorModel(&model);
     uiInit(&model);
+    last_duration_tick = gfxSystemTicks();
+    ticks_per_second = gfxMillisecondsToTicks(1000);
 
     keyboard = ginputGetKeyboard(0);
 
@@ -314,10 +350,15 @@ int main(void)
     }
 
     while (1) {
-        event = geventEventWait(&listener, gDelayForever);
+        event = geventEventWait(&listener, 100);
+
+        updateCallDuration(
+            &model,
+            &last_duration_tick,
+            ticks_per_second);
 
         if (!event)
-            continue;
+        continue;
 
         if (event->type != GEVENT_KEYBOARD)
             continue;

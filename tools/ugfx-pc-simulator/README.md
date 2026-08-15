@@ -33,6 +33,7 @@ The simulator supports developing and testing the GUI on Ubuntu before connectin
 * Dynamic modem-state simulation
 * Dynamic network-registration simulation
 * Dynamic call-state simulation
+* Time-driven active-call duration
 * Manual signal-strength adjustment
 * DTMF buffer clearing
 * SDL2 window matching the target 240×320 TFT resolution
@@ -50,6 +51,7 @@ The simulator separates the reusable GUI and data model from the PC-specific SDL
 * Maps navigation keys to platform-independent `UiKey` values
 * Converts supported characters into simulated DTMF events
 * Implements PC-only modem, network, call, and signal simulation commands
+* Updates the active-call duration using uGFX system ticks
 
 ### `ui.h`
 
@@ -211,6 +213,8 @@ The simulator also changes the demonstration operator and signal value when the 
 IDLE → RINGING → ANSWERING → ACTIVE → ENDED → IDLE
 ```
 
+While the call state is `ACTIVE`, the displayed duration increases once per second. The duration stops when the call leaves the active state and resets when a new simulated call begins.
+
 The simulated ringing state includes a demonstration caller number.
 
 ### DTMF Example
@@ -265,7 +269,6 @@ The reusable `ui.c`, `ui.h`, `ui_model.c`, and `ui_model.h` modules are designed
 
 ## Next Steps
 
-* Add a time-driven active-call duration
 * Add more complete incoming and outgoing call scenarios
 * Implement the Audio page
 * Implement the Diagnostics page
