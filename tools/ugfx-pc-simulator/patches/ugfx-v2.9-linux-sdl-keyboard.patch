@@ -1,0 +1,92 @@
+diff --git a/drivers/multiple/SDL/gdisp_lld_SDL.c b/drivers/multiple/SDL/gdisp_lld_SDL.c
+index e306dd7f..ecf93c5a 100644
+--- a/drivers/multiple/SDL/gdisp_lld_SDL.c
++++ b/drivers/multiple/SDL/gdisp_lld_SDL.c
+@@ -237,7 +237,7 @@ static int SDL_loop (void) {
+ 			case SDL_TEXTINPUT: {
+ 				int i;
+ 				sem_wait (ctx_mutex);
+-				for (i=0; context->keypos < sizeof  (context->keybuffer) && event.text.text[i]; ++i) {
++				for (i=0; context->keypos < (sizeof(context->keybuffer) / sizeof(context->keybuffer[0])) && event.text.text[i]; ++i) {
+ 					context->keybuffer[context->keypos].key = event.text.text[i];
+ 					context->keybuffer[context->keypos++].keystate = 0;
+ 				}
+@@ -246,34 +246,50 @@ static int SDL_loop (void) {
+ 				break;
+ 			
+ 			}
+-			case SDL_KEYDOWN: 
+-			case SDL_KEYUP: {
+-				SDL_Keycode k_sdl = event.key.keysym.sym;
+-				gU8 k_ugfx = 0;
+-				gU32 s_ugfx = (event.type==SDL_KEYDOWN)?0:GKEYSTATE_KEYUP;
+-				int i;
+-				if (!(k_sdl & ~0x7f) && (k_sdl <32 || k_sdl == 127)) {
+-					k_ugfx = k_sdl;
+-				}
+-				else
+-					for (i = 0; SDL_keymap[i].k_sdl; ++i)
+-						if (SDL_keymap[i].k_sdl == k_sdl) {
+-							k_ugfx = SDL_keymap[i].k_ugfx;
+-							s_ugfx |= GKEYSTATE_SPECIAL;
+-							break;
+-						}
+-				for (i = 0; SDL_modmap[i].s_sdl; ++i)
+-					if (SDL_modmap[i].s_sdl & event.key.keysym.mod)
+-						s_ugfx |= SDL_modmap[i].s_ugfx;
+-				sem_wait (ctx_mutex);
+-				if (k_ugfx && context->keypos+1 < (int)sizeof  (context->keybuffer)) {
+-					context->keybuffer[context->keypos].key = k_ugfx;
+-					context->keybuffer[context->keypos++].keystate = s_ugfx;
+-				}
+-				sem_post (ctx_mutex);
+-				sem_post (input_event);
+-				break;
+-			}
++			case SDL_KEYDOWN: {
++    SDL_Keycode k_sdl = event.key.keysym.sym;
++    gU8 k_ugfx = 0;
++    gU32 s_ugfx = 0;
++    int i;
++    int queued = 0;
++
++    if (event.key.repeat)
++        break;
++
++    if (!(k_sdl & ~0x7f) && (k_sdl < 32 || k_sdl == 127)) {
++        k_ugfx = k_sdl;
++    }
++    else
++        for (i = 0; SDL_keymap[i].k_sdl; ++i)
++            if (SDL_keymap[i].k_sdl == k_sdl) {
++                k_ugfx = SDL_keymap[i].k_ugfx;
++                s_ugfx |= GKEYSTATE_SPECIAL;
++                break;
++            }
++
++    for (i = 0; SDL_modmap[i].s_sdl; ++i)
++        if (SDL_modmap[i].s_sdl & event.key.keysym.mod)
++            s_ugfx |= SDL_modmap[i].s_ugfx;
++
++    sem_wait(ctx_mutex);
++
++    if (k_ugfx &&
++        context->keypos < (int)(sizeof(context->keybuffer) / sizeof(context->keybuffer[0]))) {
++        context->keybuffer[context->keypos].key = k_ugfx;
++        context->keybuffer[context->keypos++].keystate = s_ugfx;
++        queued = 1;
++    }
++
++    sem_post(ctx_mutex);
++
++    if (queued)
++        sem_post(input_event);
++
++    break;
++}
++
++case SDL_KEYUP:
++    break;
+ #endif
+ 			case SDL_QUIT:
+ 				done = 1;

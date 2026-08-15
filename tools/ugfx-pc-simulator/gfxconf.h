@@ -1,0 +1,18 @@
+#ifndef _GFXCONF_H
+#define _GFXCONF_H
+
+#define GFX_USE_GDISP                GFXON
+
+#define GDISP_NEED_VALIDATION        GFXON
+#define GDISP_NEED_CLIP              GFXON
+
+#define GDISP_NEED_TEXT              GFXON
+#define GDISP_INCLUDE_FONT_UI2        GFXON
+#define GDISP_SCREEN_WIDTH            240
+#define GDISP_SCREEN_HEIGHT           320
+#define GFX_USE_GEVENT          GFXON
+#define GFX_USE_GTIMER          GFXON
+
+#define GFX_USE_GINPUT          GFXON
+#define GINPUT_NEED_KEYBOARD    GFXON
+#endif
