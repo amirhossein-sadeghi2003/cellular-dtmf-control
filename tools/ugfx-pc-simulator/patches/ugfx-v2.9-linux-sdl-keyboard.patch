@@ -1,5 +1,5 @@
 diff --git a/drivers/multiple/SDL/gdisp_lld_SDL.c b/drivers/multiple/SDL/gdisp_lld_SDL.c
-index e306dd7f..ecf93c5a 100644
+index e306dd7f..1be5db9b 100644
 --- a/drivers/multiple/SDL/gdisp_lld_SDL.c
 +++ b/drivers/multiple/SDL/gdisp_lld_SDL.c
 @@ -237,7 +237,7 @@ static int SDL_loop (void) {
@@ -90,3 +90,55 @@ index e306dd7f..ecf93c5a 100644
  #endif
  			case SDL_QUIT:
  				done = 1;
+@@ -459,18 +475,39 @@ LLDSPEC void gdisp_lld_draw_pixel(GDisplay *g)
+ 	}
+ 
+ 	static int SDL_KeyboardGetData(GKeyboard *k, gU8 *pch, int sz) {
+-		int i = 0;
+-		if (!context || !context->keypos || !sz)
+-			return 0;
+-
+-		sem_wait (ctx_mutex);
+-		k->keystate = context->keybuffer[0].keystate;
+-		for (i = 0; i < sz && i < context->keypos && context->keybuffer[0].keystate == context->keybuffer[i].keystate; i++)
+-			pch[i] = context->keybuffer[i].key;
+-		context->keypos -= i;
+-		memmove (context->keybuffer,context->keybuffer+i,context->keypos * sizeof (context->keybuffer[0]));
+-		sem_post (ctx_mutex);
+-		return i;
++    int i = 0;
++
++    if (!context || !sz)
++        return 0;
++
++    sem_wait(ctx_mutex);
++
++    if (!context->keypos) {
++        sem_post(ctx_mutex);
++        return 0;
++    }
++
++    k->keystate = context->keybuffer[0].keystate;
++
++    for (i = 0;
++         i < sz &&
++         i < context->keypos &&
++         context->keybuffer[0].keystate ==
++             context->keybuffer[i].keystate;
++         i++) {
++        pch[i] = context->keybuffer[i].key;
++    }
++
++    context->keypos -= i;
++
++    memmove(
++        context->keybuffer,
++        context->keybuffer + i,
++        context->keypos * sizeof(context->keybuffer[0]));
++
++    sem_post(ctx_mutex);
++
++    return i;
+ 	}
+ #endif /* GINPUT_NEED_KEYBOARD */
+ 
