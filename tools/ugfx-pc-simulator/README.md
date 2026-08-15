@@ -2,7 +2,7 @@
 
 A 240×320 PC prototype of the STM32F407 cellular-control user interface, built with uGFX v2.9 and SDL2.
 
-The simulator makes it possible to develop and test the GUI on Ubuntu before connecting it to the physical TFT, five-key keypad, STM32F407, and SIM800C hardware.
+The simulator supports developing and testing the GUI on Ubuntu before connecting it to the physical TFT, five-key keypad, STM32F407, and SIM800C hardware.
 
 ## Current Features
 
@@ -15,12 +15,7 @@ The simulator makes it possible to develop and test the GUI on Ubuntu before con
   * Audio
   * Diagnostics
   * Settings
-* Keyboard navigation:
-
-  * `Up` / `Down`: move between menu items
-  * `Enter`: open the selected page
-  * `Left` / `Esc`: return from a page to the main menu
-  * `Esc` in the main menu: exit the simulator
+* Keyboard-based menu navigation
 * Selected-item highlighting
 * Implemented prototype pages:
 
@@ -33,37 +28,28 @@ The simulator makes it possible to develop and test the GUI on Ubuntu before con
   * Audio
   * Diagnostics
   * Settings
-* Shared UI data model for:
-
-  * Modem state
-  * Network registration
-  * Signal strength
-  * Call state
-  * Caller information
-  * Call duration
-  * DTMF state and buffer
-* Interactive DTMF simulation:
-
-  * `0–9`
-  * `*`
-  * `#`
-  * `A–D`
-* A bounded DTMF buffer that stores the most recent 16 characters
+* Shared model for modem, network, call, signal, caller, operator, and DTMF data
+* Interactive DTMF simulation
+* Dynamic modem-state simulation
+* Dynamic network-registration simulation
+* Dynamic call-state simulation
+* Manual signal-strength adjustment
+* DTMF buffer clearing
 * SDL2 window matching the target 240×320 TFT resolution
 
 ## Architecture
 
-The simulator separates the reusable GUI and data model from the PC-specific keyboard input backend.
+The simulator separates the reusable GUI and data model from the PC-specific SDL keyboard adapter.
 
 ### `main.c`
 
 * Initializes uGFX
-* Creates and initializes the simulator data model
+* Creates the simulator data model
 * Reads keyboard events from the Linux SDL backend
-* Processes every byte provided by a `GEventKeyboard` event
-* Maps PC navigation keys to platform-independent `UiKey` values
-* Converts supported keyboard characters into simulated DTMF events
-* Passes navigation events to the UI module
+* Processes every byte supplied by a keyboard event
+* Maps navigation keys to platform-independent `UiKey` values
+* Converts supported characters into simulated DTMF events
+* Implements PC-only modem, network, call, and signal simulation commands
 
 ### `ui.h`
 
@@ -77,7 +63,7 @@ The simulator separates the reusable GUI and data model from the PC-specific key
 * Stores the current page and selected menu item
 * Draws the main menu and individual pages
 * Reads displayed values from `UiModel`
-* Handles platform-independent navigation events
+* Handles platform-independent navigation
 * Redraws the current page through `uiRefresh()`
 
 ### `ui_model.h`
@@ -85,15 +71,15 @@ The simulator separates the reusable GUI and data model from the PC-specific key
 * Defines modem, network, and call states
 * Defines the shared `UiModel` structure
 * Defines caller, operator, and DTMF buffer sizes
-* Exposes model initialization and DTMF update functions
+* Exposes model initialization and DTMF functions
 
 ### `ui_model.c`
 
-* Initializes the shared model to safe default states
+* Initializes the model to safe default values
 * Validates DTMF characters
 * Stores the most recently received DTMF key
-* Maintains the bounded DTMF buffer
-* Clears DTMF state when requested
+* Maintains a bounded 16-character DTMF buffer
+* Clears the DTMF state when requested
 
 ### `gfxconf.h`
 
@@ -118,7 +104,7 @@ Install the required Ubuntu packages:
 sudo apt install build-essential libsdl2-dev
 ```
 
-The simulator expects the following directories:
+The simulator expects these directories:
 
 ```text
 ~/projects/cellular-dtmf-control
@@ -159,13 +145,13 @@ git apply ~/projects/cellular-dtmf-control/tools/ugfx-pc-simulator/patches/ugfx-
 
 ## Simulator Setup
 
-Create the PC simulator directory:
+Create the simulator directory:
 
 ```bash
 mkdir -p ~/projects/ugfx-pc-demo
 ```
 
-Copy the simulator files:
+Copy the required files:
 
 ```bash
 cp ~/projects/cellular-dtmf-control/tools/ugfx-pc-simulator/{main.c,ui.c,ui.h,ui_model.c,ui_model.h,gfxconf.h,Makefile} \
@@ -182,17 +168,54 @@ make clean
 make -j"$(nproc)"
 ```
 
-Run the generated executable:
+Run it:
 
 ```bash
 ./.build/ugfx-pc-demo
 ```
 
-## DTMF Simulation
+## Simulator Controls
 
-Open the DTMF page and type supported DTMF characters on the PC keyboard.
+| Key                    | Action                                    |
+| ---------------------- | ----------------------------------------- |
+| `Up` / `Down`          | Move between menu items                   |
+| `Enter`                | Open the selected page                    |
+| `Left` / `Esc`         | Return from a page to the main menu       |
+| `Esc` in the main menu | Exit the simulator                        |
+| `0–9`, `*`, `#`, `A–D` | Add a simulated DTMF event                |
+| `X`                    | Clear the DTMF buffer                     |
+| `M`                    | Cycle through modem states                |
+| `N`                    | Cycle through network-registration states |
+| `R`                    | Cycle through call states                 |
+| `+` / `-`              | Increase or decrease signal strength      |
 
-Example:
+Lowercase `a–d` DTMF characters are normalized to uppercase.
+
+### Modem State Cycle
+
+```text
+OFFLINE → INITIALIZING → READY → ERROR → OFFLINE
+```
+
+### Network State Cycle
+
+```text
+NOT REGISTERED → SEARCHING → HOME → ROAMING → DENIED → NOT REGISTERED
+```
+
+The simulator also changes the demonstration operator and signal value when the network state changes.
+
+### Call State Cycle
+
+```text
+IDLE → RINGING → ANSWERING → ACTIVE → ENDED → IDLE
+```
+
+The simulated ringing state includes a demonstration caller number.
+
+### DTMF Example
+
+Open the DTMF page and type:
 
 ```text
 1234567890*#ABCD
@@ -205,11 +228,9 @@ The page displays:
 * The current DTMF buffer
 * Whether the simulator is waiting for or has received a DTMF event
 
-Lowercase `a–d` characters are normalized to uppercase.
+## Initial Demonstration Data
 
-## Current GUI Data
-
-The simulator initializes `UiModel` with demonstration values:
+The simulator initializes `UiModel` with these values:
 
 * Modem: ready
 * Network registration: home
@@ -219,18 +240,18 @@ The simulator initializes `UiModel` with demonstration values:
 * DTMF detection: enabled
 * Operator: `DEMO GSM`
 
-The UI pages do not contain hard-coded modem data. They display the values stored in the shared model.
+The GUI pages read these values from `UiModel`; modem data is not hard-coded inside the drawing functions.
 
 ## Hardware Integration Plan
 
-The final hardware version will replace the simulator-specific components as follows:
+The hardware version will replace simulator-specific components as follows:
 
 * Linux SDL display backend → SPI TFT display driver
 * PC keyboard navigation → five-key GPIO keypad
-* Demonstration model values → real STM32F407 and SIM800C state
-* Keyboard DTMF simulation → real SIM800C DTMF events
+* Simulator commands → real STM32F407 and SIM800C events
+* Keyboard-generated DTMF → real SIM800C DTMF events
 
-The existing SIM800C parser can update the shared model:
+The existing SIM800C parser can populate the shared model:
 
 * `+CREG` → `network_state`
 * `+CSQ` → `signal_rssi`
@@ -238,15 +259,14 @@ The existing SIM800C parser can update the shared model:
 * Caller information → `caller`
 * `+DTMF` → `uiModelAddDtmf()`
 
-After a model update, the firmware can call `uiRefresh()` to redraw the currently visible page.
+After updating the model, the firmware can call `uiRefresh()` to redraw the visible page.
 
 The reusable `ui.c`, `ui.h`, `ui_model.c`, and `ui_model.h` modules are designed to remain largely unchanged when transferred to the STM32F407 project.
 
 ## Next Steps
 
-* Add a command to clear the DTMF buffer
-* Add dynamic call-state simulation
-* Add dynamic network and signal-strength simulation
+* Add a time-driven active-call duration
+* Add more complete incoming and outgoing call scenarios
 * Implement the Audio page
 * Implement the Diagnostics page
 * Implement the Settings page

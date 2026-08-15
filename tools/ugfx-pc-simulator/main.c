@@ -46,6 +46,18 @@ static char normalizeDtmfKey(gU8 key)
     return '\0';
 }
 
+static void copyText(
+    char *destination,
+    size_t destination_size,
+    const char *source)
+{
+    if (!destination || !destination_size || !source)
+        return;
+
+    strncpy(destination, source, destination_size - 1);
+    destination[destination_size - 1] = '\0';
+}
+
 static void initializeSimulatorModel(UiModel *model)
 {
     uiModelInit(model);
@@ -60,12 +72,180 @@ static void initializeSimulatorModel(UiModel *model)
     model->auto_answer_enabled = true;
     model->dtmf_detection_enabled = true;
 
-    strncpy(
+    copyText(
         model->operator_name,
-        "DEMO GSM",
-        UI_OPERATOR_MAX_LENGTH - 1);
+        sizeof(model->operator_name),
+        "DEMO GSM");
+}
 
-    model->operator_name[UI_OPERATOR_MAX_LENGTH - 1] = '\0';
+static void cycleModemState(UiModel *model)
+{
+    switch (model->modem_state) {
+    case UI_MODEM_OFFLINE:
+        model->modem_state = UI_MODEM_INITIALIZING;
+        break;
+
+    case UI_MODEM_INITIALIZING:
+        model->modem_state = UI_MODEM_READY;
+        break;
+
+    case UI_MODEM_READY:
+        model->modem_state = UI_MODEM_ERROR;
+        break;
+
+    case UI_MODEM_ERROR:
+    default:
+        model->modem_state = UI_MODEM_OFFLINE;
+        break;
+    }
+}
+
+static void cycleCallState(UiModel *model)
+{
+    switch (model->call_state) {
+    case UI_CALL_IDLE:
+        model->call_state = UI_CALL_RINGING;
+        model->call_duration_seconds = 0;
+
+        copyText(
+            model->caller,
+            sizeof(model->caller),
+            "+989123456789");
+        break;
+
+    case UI_CALL_RINGING:
+        model->call_state = UI_CALL_ANSWERING;
+        break;
+
+    case UI_CALL_ANSWERING:
+        model->call_state = UI_CALL_ACTIVE;
+        break;
+
+    case UI_CALL_ACTIVE:
+        model->call_state = UI_CALL_ENDED;
+        break;
+
+    case UI_CALL_ENDED:
+    default:
+        model->call_state = UI_CALL_IDLE;
+        model->call_duration_seconds = 0;
+
+        copyText(
+            model->caller,
+            sizeof(model->caller),
+            "-");
+        break;
+    }
+}
+
+static void cycleNetworkState(UiModel *model)
+{
+    switch (model->network_state) {
+    case UI_NETWORK_NOT_REGISTERED:
+        model->network_state = UI_NETWORK_SEARCHING;
+        model->signal_rssi = 10;
+
+        copyText(
+            model->operator_name,
+            sizeof(model->operator_name),
+            "-");
+        break;
+
+    case UI_NETWORK_SEARCHING:
+        model->network_state = UI_NETWORK_HOME;
+        model->signal_rssi = 26;
+
+        copyText(
+            model->operator_name,
+            sizeof(model->operator_name),
+            "DEMO GSM");
+        break;
+
+    case UI_NETWORK_HOME:
+        model->network_state = UI_NETWORK_ROAMING;
+        model->signal_rssi = 18;
+
+        copyText(
+            model->operator_name,
+            sizeof(model->operator_name),
+            "DEMO ROAM");
+        break;
+
+    case UI_NETWORK_ROAMING:
+        model->network_state = UI_NETWORK_DENIED;
+        model->signal_rssi = 5;
+
+        copyText(
+            model->operator_name,
+            sizeof(model->operator_name),
+            "-");
+        break;
+
+    case UI_NETWORK_DENIED:
+    default:
+        model->network_state = UI_NETWORK_NOT_REGISTERED;
+        model->signal_rssi = 99;
+
+        copyText(
+            model->operator_name,
+            sizeof(model->operator_name),
+            "-");
+        break;
+    }
+}
+
+static void adjustSignal(UiModel *model, int change)
+{
+    if (model->signal_rssi == 99) {
+        model->signal_rssi = change > 0 ? 0 : 31;
+        return;
+    }
+
+    if (change > 0 && model->signal_rssi < 31)
+        model->signal_rssi++;
+
+    if (change < 0 && model->signal_rssi > 0)
+        model->signal_rssi--;
+}
+
+static bool processSimulatorCommand(UiModel *model, gU8 raw_key)
+{
+    switch (raw_key) {
+    case 'm':
+    case 'M':
+        cycleModemState(model);
+        break;
+
+    case 'n':
+    case 'N':
+        cycleNetworkState(model);
+        break;
+
+    case 'r':
+    case 'R':
+        cycleCallState(model);
+        break;
+
+    case '+':
+        adjustSignal(model, 1);
+        break;
+
+    case '-':
+        adjustSignal(model, -1);
+        break;
+
+    case 'x':
+    case 'X':
+        uiModelClearDtmf(model);
+        break;
+
+    default:
+        return false;
+    }
+
+    uiRefresh();
+
+    return true;
 }
 
 static UiAction processRawKey(UiModel *model, gU8 raw_key)
@@ -81,6 +261,9 @@ static UiAction processRawKey(UiModel *model, gU8 raw_key)
 
         return UI_ACTION_NONE;
     }
+
+    if (processSimulatorCommand(model, raw_key))
+        return UI_ACTION_NONE;
 
     ui_key = mapKeyboardKey(raw_key);
 
