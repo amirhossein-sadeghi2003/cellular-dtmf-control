@@ -7,6 +7,7 @@
 #define UI_CALLER_MAX_LENGTH 24
 #define UI_OPERATOR_MAX_LENGTH 20
 #define UI_DTMF_BUFFER_LENGTH 17
+#define UI_ERROR_MAX_LENGTH 24
 
 typedef enum {
     UI_MODEM_OFFLINE = 0,
@@ -47,6 +48,14 @@ typedef struct {
 
     char last_dtmf;
     char dtmf_buffer[UI_DTMF_BUFFER_LENGTH];
+
+    bool uart_ready;
+    bool sim_ready;
+
+    uint32_t modem_reset_count;
+    uint32_t at_error_count;
+
+    char last_error[UI_ERROR_MAX_LENGTH];
 } UiModel;
 
 void uiModelInit(UiModel *model);

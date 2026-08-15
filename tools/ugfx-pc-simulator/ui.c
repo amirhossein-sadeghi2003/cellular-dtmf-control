@@ -2,6 +2,7 @@
 #include "ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #define MENU_COUNT 7
 #define PAGE_MENU (-1)
@@ -341,7 +342,65 @@ static void drawNetworkPage(void)
 
     drawFooter("LEFT / ESC: BACK");
 }
+static void drawDiagnosticsPage(void)
+{
+    char reset_count_text[16];
+    char at_error_count_text[16];
+    bool no_active_error;
 
+    snprintf(
+        reset_count_text,
+        sizeof(reset_count_text),
+        "%lu",
+        (unsigned long)ui_model->modem_reset_count);
+
+    snprintf(
+        at_error_count_text,
+        sizeof(at_error_count_text),
+        "%lu",
+        (unsigned long)ui_model->at_error_count);
+        no_active_error =
+    strcmp(ui_model->last_error, "NONE") == 0;
+
+    beginPage("DIAGNOSTICS");
+
+    gdispDrawString(15, 82, "SYSTEM HEALTH", font, Yellow);
+
+    drawValue(
+        105,
+        "UART",
+        ui_model->uart_ready ? "READY" : "ERROR",
+        ui_model->uart_ready ? Green : Red);
+
+    drawValue(
+        135,
+        "SIM",
+        ui_model->sim_ready ? "READY" : "NOT READY",
+        ui_model->sim_ready ? Green : Red);
+
+    drawValue(
+        165,
+        "RESETS",
+        reset_count_text,
+        ui_model->modem_reset_count ? Yellow : Green);
+
+    drawValue(
+        195,
+        "AT ERRORS",
+        at_error_count_text,
+        ui_model->at_error_count ? Green : Red);
+
+    gdispDrawString(15, 220, "LAST ERROR", font, White);
+
+    gdispDrawString(
+        15,
+        240,
+        ui_model->last_error,
+        font,
+        ui_model->at_error_count ? Red : Green);
+
+    drawFooter("LEFT / ESC: BACK");
+}
 static void drawPlaceholderPage(const char *title)
 {
     beginPage(title);
@@ -377,7 +436,13 @@ static void drawPage(void)
         break;
 
     case 4:
+        drawPlaceholderPage(menu_items[current_page]);
+        break;
+
     case 5:
+        drawDiagnosticsPage();
+        break;
+
     case 6:
         drawPlaceholderPage(menu_items[current_page]);
         break;

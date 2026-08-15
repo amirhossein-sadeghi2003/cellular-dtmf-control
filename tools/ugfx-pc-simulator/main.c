@@ -71,6 +71,8 @@ static void initializeSimulatorModel(UiModel *model)
 
     model->auto_answer_enabled = true;
     model->dtmf_detection_enabled = true;
+    model->uart_ready = true;
+    model->sim_ready = true;
 
     copyText(
         model->operator_name,
@@ -208,6 +210,80 @@ static void adjustSignal(UiModel *model, int change)
         model->signal_rssi--;
 }
 
+
+static void cycleDiagnosticScenario(UiModel *model)
+{
+    static unsigned int diagnostic_step;
+
+    diagnostic_step++;
+
+    if (diagnostic_step > 4)
+        diagnostic_step = 0;
+
+    switch (diagnostic_step) {
+    case 1:
+        model->uart_ready = true;
+        model->sim_ready = true;
+        model->modem_state = UI_MODEM_ERROR;
+        model->at_error_count++;
+
+        copyText(
+            model->last_error,
+            sizeof(model->last_error),
+            "AT TIMEOUT");
+        break;
+
+    case 2:
+        model->uart_ready = false;
+        model->sim_ready = true;
+        model->modem_state = UI_MODEM_ERROR;
+        model->at_error_count++;
+
+        copyText(
+            model->last_error,
+            sizeof(model->last_error),
+            "UART ERROR");
+        break;
+
+    case 3:
+        model->uart_ready = true;
+        model->sim_ready = false;
+        model->modem_state = UI_MODEM_READY;
+
+        copyText(
+            model->last_error,
+            sizeof(model->last_error),
+            "SIM NOT READY");
+        break;
+
+    case 4:
+        model->uart_ready = true;
+        model->sim_ready = true;
+        model->modem_state = UI_MODEM_INITIALIZING;
+        model->modem_reset_count++;
+
+        copyText(
+            model->last_error,
+            sizeof(model->last_error),
+            "MODEM RESET");
+        break;
+
+    case 0:
+    default:
+        model->uart_ready = true;
+        model->sim_ready = true;
+        model->modem_state = UI_MODEM_READY;
+
+        copyText(
+            model->last_error,
+            sizeof(model->last_error),
+            "NONE");
+        break;
+    }
+}
+
+
+
 static bool processSimulatorCommand(UiModel *model, gU8 raw_key)
 {
     switch (raw_key) {
@@ -225,6 +301,13 @@ static bool processSimulatorCommand(UiModel *model, gU8 raw_key)
     case 'R':
         cycleCallState(model);
         break;
+
+    case 'f':
+    case 'F':
+        cycleDiagnosticScenario(model);
+        break;
+
+
 
     case '+':
         adjustSignal(model, 1);

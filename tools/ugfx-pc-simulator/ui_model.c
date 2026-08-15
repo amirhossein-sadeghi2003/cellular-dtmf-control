@@ -42,6 +42,17 @@ void uiModelInit(UiModel *model)
 
     model->last_dtmf = '-';
     model->dtmf_buffer[0] = '\0';
+    model->uart_ready = false;
+    model->sim_ready = false;
+
+    model->modem_reset_count = 0;
+    model->at_error_count = 0;
+
+    model->last_error[0] = 'N';
+    model->last_error[1] = 'O';
+    model->last_error[2] = 'N';
+    model->last_error[3] = 'E';
+    model->last_error[4] = '\0';
 }
 
 bool uiModelAddDtmf(UiModel *model, char key)
