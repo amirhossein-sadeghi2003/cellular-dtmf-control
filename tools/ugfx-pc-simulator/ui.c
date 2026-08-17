@@ -351,11 +351,19 @@ static void drawMenu(void)
         y = CONTENT_TOP + 10 + (i * 25);
 
         if (i == selected) {
-            gdispDrawString(20, y, ">", font_menu, Yellow);
-            gdispDrawString(40, y, menu_items[i], font_menu, Yellow);
+            gdispFillArea( 12, y - 3,
+            SCREEN_WIDTH - 24,
+            23,
+            Blue);
+            
+            gdispDrawString( 40, y, menu_items[i],
+            font_menu,
+            Yellow);
         } else {
-            gdispDrawString(40, y, menu_items[i], font_menu, White);
-        }
+            gdispDrawString( 40, y, menu_items[i],
+            font_menu,
+            White);
+            }
     }
 
     drawFooter("ENTER: OPEN   ESC: EXIT");
