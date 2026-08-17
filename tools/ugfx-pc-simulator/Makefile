@@ -13,7 +13,7 @@ OPT_CPU = x64
 
 # uGFX settings
 	# See $(GFXLIB)/tools/gmake_scripts/library_ugfx.mk for the list of variables
-GFXLIB = ../ugfx
+GFXLIB ?= ../../../ugfx
 	GFXBOARD				= Linux-SDL
 	GFXDEMO					=
 # Linux settings
