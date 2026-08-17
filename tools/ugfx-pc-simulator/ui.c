@@ -32,7 +32,7 @@ static const char *menu_items[MENU_COUNT] = {
     "Settings"
 };
 
-static font_t font;
+static font_t font_body;
 static font_t font_status;
 static font_t font_menu;
 static UiModel *ui_model;
@@ -392,8 +392,8 @@ static void drawValue(
     const char *value,
     color_t value_color)
 {
-    gdispDrawString(15, y, label, font, White);
-    gdispDrawString(115, y, value, font, value_color);
+    gdispDrawString(15, y, label, font_body, White);
+    gdispDrawString(115, y, value, font_body, value_color);
 }
 
 static void drawStatusPage(void)
@@ -403,7 +403,7 @@ static void drawStatusPage(void)
     formatSignal(signal_text, sizeof(signal_text));
     beginPage("STATUS");
 
-    gdispDrawString(15, 82, "SYSTEM STATE", font, Yellow);
+    gdispDrawString(15, 82, "SYSTEM STATE", font_body, Yellow);
 
     drawValue(
         110,
@@ -435,7 +435,7 @@ static void drawCallPage(void)
     formatDuration(duration_text, sizeof(duration_text));
     beginPage("CALL");
 
-    gdispDrawString(15, 82, "CALL STATE", font, Yellow);
+    gdispDrawString(15, 82, "CALL STATE", font_body, Yellow);
 
     drawValue(
         110,
@@ -474,7 +474,7 @@ static void drawDtmfPage(void)
 
     beginPage("DTMF");
 
-    gdispDrawString(15, 82, "DTMF EVENTS", font, Yellow);
+    gdispDrawString(15, 82, "DTMF EVENTS", font_body, Yellow);
 
     drawValue(
         110,
@@ -496,7 +496,7 @@ static void drawNetworkPage(void)
     formatSignal(signal_text, sizeof(signal_text));
     beginPage("NETWORK");
 
-    gdispDrawString(15, 82, "NETWORK STATE", font, Yellow);
+    gdispDrawString(15, 82, "NETWORK STATE", font_body, Yellow);
 
     drawValue(
         110,
@@ -532,7 +532,7 @@ static void drawDiagnosticsPage(void)
 
     beginPage("DIAGNOSTICS");
 
-    gdispDrawString(15, 82, "SYSTEM HEALTH", font, Yellow);
+    gdispDrawString(15, 82, "SYSTEM HEALTH", font_body, Yellow);
 
     drawValue(
         105,
@@ -558,13 +558,13 @@ static void drawDiagnosticsPage(void)
         at_error_count_text,
         ui_model->at_error_count ? Green : Red);
 
-    gdispDrawString(15, 220, "LAST ERROR", font, White);
+    gdispDrawString(15, 220, "LAST ERROR", font_body, White);
 
     gdispDrawString(
         15,
         240,
         ui_model->last_error,
-        font,
+        font_body,
         ui_model->at_error_count ? Red : Green);
 
     drawFooter("LEFT / ESC: BACK");
@@ -573,8 +573,8 @@ static void drawPlaceholderPage(const char *title)
 {
     beginPage(title);
 
-    gdispDrawString(15, 105, "This page is not", font, White);
-    gdispDrawString(15, 130, "implemented yet.", font, White);
+    gdispDrawString(15, 105, "This page is not", font_body, White);
+    gdispDrawString(15, 130, "implemented yet.", font_body, White);
 
     drawFooter("LEFT / ESC: BACK");
 }
@@ -622,7 +622,7 @@ static void drawPage(void)
 
 void uiInit(UiModel *model)
 {
-    font = gdispOpenFont("UI2");
+    font_body = gdispOpenFont("DejaVuSans12");
     font_status = gdispOpenFont("DejaVuSans10");
     font_menu = gdispOpenFont("DejaVuSans16");
 
@@ -649,7 +649,7 @@ void uiRefresh(void)
 void uiShowError(const char *message)
 {
     gdispFillArea(10, 250, 220, 30, Black);
-    gdispDrawString(10, 255, message, font, Red);
+    gdispDrawString(10, 255, message, font_body, Red);
 }
 
 UiAction uiHandleKey(UiKey key)
