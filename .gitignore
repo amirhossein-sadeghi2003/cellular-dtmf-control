@@ -9,3 +9,6 @@ firmware/**/*.launch
 
 # STM32CubeIDE local SFR view settings
 firmware/**/.settings/com.st.stm32cube.ide.mcu.sfrview.prefs
+
+# uGFX PC simulator build artifacts
+tools/ugfx-pc-simulator/.build

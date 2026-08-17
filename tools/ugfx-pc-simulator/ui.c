@@ -7,6 +7,21 @@
 #define MENU_COUNT 7
 #define PAGE_MENU (-1)
 
+#define SCREEN_WIDTH 240
+#define SCREEN_HEIGHT 320
+
+#define STATUS_BAR_Y 0
+#define STATUS_BAR_HEIGHT 22
+
+#define TITLE_BAR_Y (STATUS_BAR_Y + STATUS_BAR_HEIGHT)
+#define TITLE_BAR_HEIGHT 43
+
+#define CONTENT_TOP (TITLE_BAR_Y + TITLE_BAR_HEIGHT + 10)
+
+#define FOOTER_LINE_Y 285
+#define FOOTER_TEXT_Y 295
+
+
 static const char *menu_items[MENU_COUNT] = {
     "Status",
     "Call",
@@ -18,6 +33,8 @@ static const char *menu_items[MENU_COUNT] = {
 };
 
 static font_t font;
+static font_t font_status;
+static font_t font_menu;
 static UiModel *ui_model;
 static int selected;
 static int current_page;
@@ -156,6 +173,106 @@ static void formatSignal(char *buffer, size_t buffer_size)
         (unsigned int)ui_model->signal_rssi);
 }
 
+static int signalBarCount(unsigned int rssi)
+{
+    if (rssi == 99 || rssi > 31) {
+        return 0;
+    }
+
+    if (rssi <= 5) {
+        return 1;
+    }
+
+    if (rssi <= 11) {
+        return 2;
+    }
+
+    if (rssi <= 17) {
+        return 3;
+    }
+
+    if (rssi <= 23) {
+        return 4;
+    }
+
+    return 5;
+}
+
+
+
+
+
+static void drawSignalBars(int x, int bottom_y, unsigned int rssi)
+{
+    int i;
+    int bar_height;
+    int active_bars;
+    color_t bar_color;
+
+    active_bars = signalBarCount(rssi);
+
+    for (i = 0; i < 5; i++) {
+        bar_height = 4 + (i * 3);
+
+        if (i < active_bars) {
+            bar_color = Green;
+        } else {
+            bar_color = Gray;
+        }
+
+        gdispFillArea(
+            x + (i * 5),
+            bottom_y - bar_height,
+            3,
+            bar_height,
+            bar_color);
+    }
+}
+
+
+static void drawStatusBar(void)
+{
+    color_t modem_color;
+    color_t network_color;
+
+    modem_color = modemStateColor(ui_model->modem_state);
+    network_color = networkStateColor(ui_model->network_state);
+
+    gdispFillArea(
+        0,
+        STATUS_BAR_Y,
+        SCREEN_WIDTH,
+        STATUS_BAR_HEIGHT,
+        Black);
+
+    gdispFillArea(
+        6,
+        STATUS_BAR_Y + 8,
+        6,
+        6,
+        modem_color);
+
+    gdispDrawString(
+        18,
+        STATUS_BAR_Y + 5,
+        networkStateText(ui_model->network_state),
+        font_status,
+        network_color);
+
+    drawSignalBars(
+        210,
+        STATUS_BAR_Y + STATUS_BAR_HEIGHT - 2,
+        (unsigned int)ui_model->signal_rssi);
+
+    gdispDrawLine(
+        0,
+        STATUS_BAR_Y + STATUS_BAR_HEIGHT - 1,
+        SCREEN_WIDTH - 1,
+        STATUS_BAR_Y + STATUS_BAR_HEIGHT - 1,
+        Gray);
+}
+
+
 static void formatDuration(char *buffer, size_t buffer_size)
 {
     uint32_t minutes;
@@ -172,16 +289,40 @@ static void formatDuration(char *buffer, size_t buffer_size)
         (unsigned long)seconds);
 }
 
-static void drawHeader(void)
+static void drawHeader(const char *title)
 {
-    gdispFillArea(0, 0, 240, 35, Blue);
-    gdispDrawString(10, 10, "CELLULAR CONTROL", font, White);
+    drawStatusBar();
+
+    gdispFillArea(
+        0,
+        TITLE_BAR_Y,
+        SCREEN_WIDTH,
+        TITLE_BAR_HEIGHT,
+        Blue);
+
+    gdispDrawString(
+        10,
+        TITLE_BAR_Y + 12,
+        title,
+        font_menu,
+        White);
 }
 
 static void drawFooter(const char *text)
 {
-    gdispDrawLine(10, 285, 230, 285, Gray);
-    gdispDrawString(10, 295, text, font, Gray);
+    gdispDrawLine(
+        10,
+        FOOTER_LINE_Y,
+        SCREEN_WIDTH - 10,
+        FOOTER_LINE_Y,
+        Gray);
+
+    gdispDrawString(
+        10,
+        FOOTER_TEXT_Y,
+        text,
+        font_status,
+        Gray);
 }
 
 static void drawMenu(void)
@@ -190,19 +331,30 @@ static void drawMenu(void)
     int y;
 
     gdispClear(Black);
-    drawHeader();
+    drawHeader("CELLULAR CONTROL");
 
-    gdispFillArea(10, 45, 220, 190, Black);
-    gdispDrawBox(10, 45, 220, 190, Gray);
+    gdispFillArea(
+        10,
+        CONTENT_TOP,
+        SCREEN_WIDTH - 20,
+        190,
+        Black);
+
+    gdispDrawBox(
+        10,
+        CONTENT_TOP,
+        SCREEN_WIDTH - 20,
+        190,
+        Gray);
 
     for (i = 0; i < MENU_COUNT; i++) {
-        y = 58 + (i * 25);
+        y = CONTENT_TOP + 10 + (i * 25);
 
         if (i == selected) {
-            gdispDrawString(20, y, ">", font, Yellow);
-            gdispDrawString(32, y, menu_items[i], font, Yellow);
+            gdispDrawString(20, y, ">", font_menu, Yellow);
+            gdispDrawString(40, y, menu_items[i], font_menu, Yellow);
         } else {
-            gdispDrawString(32, y, menu_items[i], font, White);
+            gdispDrawString(40, y, menu_items[i], font_menu, White);
         }
     }
 
@@ -211,11 +363,19 @@ static void drawMenu(void)
 
 static void beginPage(const char *title)
 {
-    gdispClear(Black);
-    drawHeader();
+    int separator_y;
 
-    gdispDrawString(10, 50, title, font, Cyan);
-    gdispDrawLine(10, 70, 230, 70, Gray);
+    separator_y = TITLE_BAR_Y + TITLE_BAR_HEIGHT;
+
+    gdispClear(Black);
+    drawHeader(title);
+
+    gdispDrawLine(
+        10,
+        separator_y,
+        SCREEN_WIDTH - 10,
+        separator_y,
+        Gray);
 }
 
 static void drawValue(
@@ -455,14 +615,19 @@ static void drawPage(void)
 void uiInit(UiModel *model)
 {
     font = gdispOpenFont("UI2");
+    font_status = gdispOpenFont("DejaVuSans10");
+    font_menu = gdispOpenFont("DejaVuSans16");
+
     ui_model = model;
     selected = 0;
     current_page = PAGE_MENU;
 
-    drawMenu();
-
-    if (!ui_model)
+    if (!ui_model) {
         uiShowError("MODEL ERROR");
+        return;
+    }
+
+    drawMenu();
 }
 
 void uiRefresh(void)
