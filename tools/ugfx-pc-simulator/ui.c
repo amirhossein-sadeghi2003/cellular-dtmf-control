@@ -7,6 +7,9 @@
 #define MENU_COUNT 7
 #define PAGE_MENU (-1)
 
+#define PAGE_ADMIN_LOGIN (-2)
+#define ADMIN_PIN_LENGTH 4
+
 #define SCREEN_WIDTH 240
 #define SCREEN_HEIGHT 320
 
@@ -51,18 +54,24 @@ static UiModel *ui_model;
 static int selected;
 static int current_page;
 static UiRole current_role;
+static char pin_digits[ADMIN_PIN_LENGTH + 1];
+static int pin_cursor;
+static int pending_page;
+static const char admin_pin[] = "1234";
 
 
+static const char *roleText(UiRole role)
+{
+    switch (role) {
+    case UI_ROLE_USER:
+        return "USER";
 
-static const char* roleText(UiRole role){
-    switch(role){
-        case UI_ROLE_USER:
-            return "USER";
-        
-        case UI_ROLE_ADMIN:
-            return  "ADMIN";
+    case UI_ROLE_ADMIN:
+        return "ADMIN";
+
+    default:
+        return "UNKNOWN";
     }
-
 }
 
 
@@ -516,6 +525,7 @@ static void drawMenu(void)
     drawFooter("ENTER: OPEN   ESC: EXIT");
 }
 
+
 static void beginPage(const char *title)
 {
     int separator_y;
@@ -532,6 +542,87 @@ static void beginPage(const char *title)
         separator_y,
         Gray);
 }
+
+
+static void drawAdminLoginPage(void)
+{
+    int i;
+    int box_x;
+    char digit_text[2];
+
+    beginPage("ADMIN LOGIN");
+
+    gdispDrawString(
+        15,
+        82,
+        "ENTER ADMIN PIN",
+        font_body,
+        Yellow);
+
+    for (i = 0; i < ADMIN_PIN_LENGTH; i++) {
+        box_x = 33 + (i * 46);
+
+        if (i == pin_cursor) {
+            gdispFillArea(
+                box_x,
+                125,
+                36,
+                44,
+                Blue);
+        }
+
+        gdispDrawBox(
+            box_x,
+            125,
+            36,
+            44,
+            i == pin_cursor ? White : Gray);
+
+        digit_text[0] = pin_digits[i];
+        digit_text[1] = '\0';
+
+        gdispDrawString(
+            box_x + 12,
+            137,
+            digit_text,
+            font_menu,
+            White);
+    }
+
+    gdispDrawString(
+        35,
+        200,
+        "UP/DOWN: CHANGE",
+        font_status,
+        Gray);
+
+    gdispDrawString(
+        35,
+        220,
+        "LEFT/RIGHT: MOVE",
+        font_status,
+        Gray);
+
+    drawFooter("ENTER: LOGIN   ESC: CANCEL");
+}
+
+
+static void startAdminLogin(int page_index)
+{
+    pending_page = page_index;
+    pin_cursor = 0;
+
+    memcpy(
+        pin_digits,
+        "0000",
+        ADMIN_PIN_LENGTH + 1);
+
+    current_page = PAGE_ADMIN_LOGIN;
+    drawAdminLoginPage();
+}
+
+
+
 
 static void drawValue(
     int y,
@@ -734,6 +825,11 @@ static void drawPage(void)
     }
 
     switch (current_page) {
+
+    case PAGE_ADMIN_LOGIN:
+        drawAdminLoginPage();
+        break;
+
     case 0:
         drawStatusPage();
         break;
@@ -766,6 +862,74 @@ static void drawPage(void)
         break;
     }
 }
+
+
+static void handleAdminLoginKey(UiKey key)
+{
+    switch (key) {
+    case UI_KEY_UP:
+        if (pin_digits[pin_cursor] == '9')
+            pin_digits[pin_cursor] = '0';
+        else
+            pin_digits[pin_cursor]++;
+
+        drawAdminLoginPage();
+        break;
+
+    case UI_KEY_DOWN:
+        if (pin_digits[pin_cursor] == '0')
+            pin_digits[pin_cursor] = '9';
+        else
+            pin_digits[pin_cursor]--;
+
+        drawAdminLoginPage();
+        break;
+
+    case UI_KEY_LEFT:
+        if (pin_cursor > 0)
+            pin_cursor--;
+
+        drawAdminLoginPage();
+        break;
+
+    case UI_KEY_RIGHT:
+        if (pin_cursor < ADMIN_PIN_LENGTH - 1)
+            pin_cursor++;
+
+        drawAdminLoginPage();
+        break;
+
+    case UI_KEY_ENTER:
+        if (strcmp(pin_digits, admin_pin) == 0) {
+            current_role = UI_ROLE_ADMIN;
+            current_page = pending_page;
+            drawPage();
+        } else {
+            memcpy(
+                pin_digits,
+                "0000",
+                ADMIN_PIN_LENGTH + 1);
+
+            pin_cursor = 0;
+            drawAdminLoginPage();
+            uiShowError("INCORRECT PIN");
+        }
+        break;
+
+    case UI_KEY_BACK:
+        pending_page = PAGE_MENU;
+        current_page = PAGE_MENU;
+        drawMenu();
+        break;
+
+    default:
+        break;
+    }
+}
+
+
+
+
 
 void uiInit(UiModel *model)
 {
@@ -826,7 +990,7 @@ UiAction uiHandleKey(UiKey key)
             if (pageAccessForRole(
                     current_role,
                     selected) == UI_ACCESS_DENIED) {
-                drawFooter("ADMIN LOGIN REQUIRED");
+                 startAdminLogin(selected);
                 break;
             }
 
@@ -840,6 +1004,8 @@ UiAction uiHandleKey(UiKey key)
         default:
             break;
         }
+    }else if (current_page == PAGE_ADMIN_LOGIN) {
+        handleAdminLoginKey(key);
     } else {
         switch (key) {
         case UI_KEY_LEFT:
