@@ -21,6 +21,11 @@
 #define FOOTER_LINE_Y 285
 #define FOOTER_TEXT_Y 295
 
+typedef enum{
+    UI_ROLE_USER = 0,
+    UI_ROLE_ADMIN
+} UiRole;
+
 
 static const char *menu_items[MENU_COUNT] = {
     "Status",
@@ -38,6 +43,20 @@ static font_t font_menu;
 static UiModel *ui_model;
 static int selected;
 static int current_page;
+static UiRole current_role;
+
+
+
+static const char* roleText(UiRole role){
+    switch(role){
+        case UI_ROLE_USER:
+            return "USER";
+        
+        case UI_ROLE_ADMIN:
+            return  "ADMIN";
+    }
+
+}
 
 static const char *modemStateText(UiModemState state)
 {
@@ -258,6 +277,13 @@ static void drawStatusBar(void)
         networkStateText(ui_model->network_state),
         font_status,
         network_color);
+
+    gdispDrawString(
+        165,
+        STATUS_BAR_Y + 5,
+        roleText(current_role),
+        font_status,
+        current_role == UI_ROLE_ADMIN ? Yellow : White);
 
     drawSignalBars(
         210,
@@ -714,6 +740,7 @@ void uiInit(UiModel *model)
     ui_model = model;
     selected = 0;
     current_page = PAGE_MENU;
+    current_role = UI_ROLE_USER;
 
     if (!ui_model) {
         uiShowError("MODEL ERROR");
