@@ -42,7 +42,7 @@ static const char *menu_items[MENU_COUNT] = {
     "Call",
     "DTMF",
     "Network",
-    "Audio",
+    "Display",
     "Diagnostics",
     "Settings"
 };
@@ -436,17 +436,10 @@ static void drawMenuIcon(int item_index, int x, int y,
             break; 
 
         case 4:
-            gdispFillArea( x + 1, y + 6,
-            4,
-            5,
-            color);
-
-            gdispDrawLine(x + 5, y + 6, x + 9, y + 2, color);
-            gdispDrawLine(x + 9, y + 2, x + 9, y + 14, color);
-            gdispDrawLine(x + 9, y + 14, x + 5, y + 10, color);
-            gdispDrawLine(x + 12, y + 5, x + 15, y + 8, color);
-            gdispDrawLine(x + 15, y + 8, x + 12, y + 11, color);
-            break;        
+            gdispDrawBox(x + 1, y + 1, 14, 10, color);
+            gdispDrawLine(x + 8, y + 11, x + 8, y + 14, color);
+            gdispDrawLine(x + 4, y + 14, x + 12, y + 14, color);
+            break;       
         
         case 5:         
             gdispDrawBox(x + 1, y + 1, 9, 9, color);
@@ -798,14 +791,14 @@ static void drawNetworkPage(void)
 
 
 
-static void drawAudioPage(void)
+static void drawDisplayPage(void)
 {
-    beginPage("AUDIO");
+    beginPage("DISPLAY");
 
     gdispDrawString(
         15,
         82,
-        "AUDIO CONTROL",
+        "DISPLAY CONTROL",
         font_body,
         Yellow);
 
@@ -814,7 +807,7 @@ static void drawAudioPage(void)
     gdispDrawString(
         15,
         125,
-        "Audio parameters will",
+        "Display settings will",
         font_body,
         White);
 
@@ -827,7 +820,6 @@ static void drawAudioPage(void)
 
     drawFooter("LEFT / ESC: BACK");
 }
-
 
 
 
@@ -991,7 +983,7 @@ static void drawPage(void)
         break;
 
     case 4:
-        drawAudioPage();
+        drawDisplayPage();
         break;
 
     case 5:
