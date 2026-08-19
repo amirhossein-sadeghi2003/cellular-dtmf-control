@@ -807,6 +807,58 @@ static void drawDiagnosticsPage(void)
 
     drawFooter("LEFT / ESC: BACK");
 }
+
+
+static void drawSettingsPage(void)
+{
+    beginPage("SETTINGS");
+
+    gdispDrawString(
+        15,
+        82,
+        "SESSION SETTINGS",
+        font_body,
+        Yellow);
+
+    drawValue(
+        110,
+        "CURRENT ROLE",
+        roleText(current_role),
+        current_role == UI_ROLE_ADMIN ? Yellow : White);
+
+    gdispFillArea(
+        15,
+        150,
+        210,
+        42,
+        Blue);
+
+    gdispDrawBox(
+        15,
+        150,
+        210,
+        42,
+        White);
+
+    gdispDrawString(
+        28,
+        164,
+        "LOCK ADMIN SESSION",
+        font_body,
+        White);
+
+    drawFooter("ENTER: LOCK   LEFT / ESC: BACK");
+}
+
+
+
+
+
+
+
+
+
+
 static void drawPlaceholderPage(const char *title)
 {
     beginPage(title);
@@ -855,7 +907,7 @@ static void drawPage(void)
         break;
 
     case 6:
-        drawPlaceholderPage(menu_items[current_page]);
+        drawSettingsPage();
         break;
 
     default:
@@ -929,6 +981,22 @@ static void handleAdminLoginKey(UiKey key)
 
 
 
+static void lockAdminSession(void)
+{
+    current_role = UI_ROLE_USER;
+    pending_page = PAGE_MENU;
+    pin_cursor = 0;
+
+    memcpy(
+        pin_digits,
+        "0000",
+        ADMIN_PIN_LENGTH + 1);
+
+    current_page = PAGE_MENU;
+    drawMenu();
+}
+
+
 
 
 void uiInit(UiModel *model)
@@ -990,7 +1058,7 @@ UiAction uiHandleKey(UiKey key)
             if (pageAccessForRole(
                     current_role,
                     selected) == UI_ACCESS_DENIED) {
-                 startAdminLogin(selected);
+                startAdminLogin(selected);
                 break;
             }
 
@@ -1004,10 +1072,17 @@ UiAction uiHandleKey(UiKey key)
         default:
             break;
         }
-    }else if (current_page == PAGE_ADMIN_LOGIN) {
+    } else if (current_page == PAGE_ADMIN_LOGIN) {
         handleAdminLoginKey(key);
     } else {
         switch (key) {
+        case UI_KEY_ENTER:
+            if (current_page == 6 &&
+                current_role == UI_ROLE_ADMIN) {
+                lockAdminSession();
+            }
+            break;
+
         case UI_KEY_LEFT:
         case UI_KEY_BACK:
             current_page = PAGE_MENU;
