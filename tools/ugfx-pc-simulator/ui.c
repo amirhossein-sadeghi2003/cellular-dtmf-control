@@ -624,14 +624,60 @@ static void startAdminLogin(int page_index)
 
 
 
-static void drawValue(
-    int y,
-    const char *label,
-    const char *value,
+static void drawValue(int y, const char *label, const char *value,
     color_t value_color)
 {
     gdispDrawString(15, y, label, font_body, White);
     gdispDrawString(115, y, value, font_body, value_color);
+}
+
+
+
+static void drawAccessBadge(int page_index)
+{
+    UiPageAccess access;
+    const char *access_text;
+    color_t access_color;
+
+    access = pageAccessForRole(
+        current_role,
+        page_index);
+
+    switch (access) {
+    case UI_ACCESS_READ_ONLY:
+        access_text = "READ ONLY";
+        access_color = Gray;
+        break;
+
+    case UI_ACCESS_LIMITED:
+        access_text = "LIMITED";
+        access_color = Yellow;
+        break;
+
+    case UI_ACCESS_EDITABLE:
+        access_text = "EDITABLE";
+        access_color = Green;
+        break;
+
+    default:
+        access_text = "DENIED";
+        access_color = Red;
+        break;
+    }
+
+    gdispDrawBox(
+        145,
+        80,
+        80,
+        20,
+        access_color);
+
+    gdispDrawString(
+        151,
+        85,
+        access_text,
+        font_status,
+        access_color);
 }
 
 static void drawStatusPage(void)
@@ -733,7 +779,7 @@ static void drawNetworkPage(void)
 
     formatSignal(signal_text, sizeof(signal_text));
     beginPage("NETWORK");
-
+    drawAccessBadge(3);
     gdispDrawString(15, 82, "NETWORK STATE", font_body, Yellow);
 
     drawValue(
@@ -748,6 +794,52 @@ static void drawNetworkPage(void)
 
     drawFooter("LEFT / ESC: BACK");
 }
+
+
+
+
+static void drawAudioPage(void)
+{
+    beginPage("AUDIO");
+
+    gdispDrawString(
+        15,
+        82,
+        "AUDIO CONTROL",
+        font_body,
+        Yellow);
+
+    drawAccessBadge(4);
+
+    gdispDrawString(
+        15,
+        125,
+        "Audio parameters will",
+        font_body,
+        White);
+
+    gdispDrawString(
+        15,
+        150,
+        "be implemented next.",
+        font_body,
+        White);
+
+    drawFooter("LEFT / ESC: BACK");
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 static void drawDiagnosticsPage(void)
 {
     char reset_count_text[16];
@@ -899,7 +991,7 @@ static void drawPage(void)
         break;
 
     case 4:
-        drawPlaceholderPage(menu_items[current_page]);
+        drawAudioPage();
         break;
 
     case 5:
