@@ -26,6 +26,13 @@ typedef enum{
     UI_ROLE_ADMIN
 } UiRole;
 
+typedef enum{
+    UI_ACCESS_DENIED,
+    UI_ACCESS_READ_ONLY,
+    UI_ACCESS_LIMITED,
+    UI_ACCESS_EDITABLE
+} UiPageAccess;
+
 
 static const char *menu_items[MENU_COUNT] = {
     "Status",
@@ -57,6 +64,27 @@ static const char* roleText(UiRole role){
     }
 
 }
+
+
+static UiPageAccess pageAccessForRole(UiRole role, int page_index){
+    switch(page_index){
+        case 0:
+        case 1:
+        case 2:
+            return UI_ACCESS_READ_ONLY;
+        case 3:
+            return role == UI_ROLE_ADMIN ? UI_ACCESS_EDITABLE : UI_ACCESS_READ_ONLY;
+        case 4:
+            return role == UI_ROLE_ADMIN ? UI_ACCESS_EDITABLE : UI_ACCESS_LIMITED;
+        case 5:
+            return role == UI_ROLE_ADMIN ? UI_ACCESS_READ_ONLY : UI_ACCESS_DENIED;
+        case 6:
+            return role == UI_ROLE_ADMIN ? UI_ACCESS_EDITABLE : UI_ACCESS_DENIED;
+        default:
+            return UI_ACCESS_DENIED; 
+    }
+}
+
 
 static const char *modemStateText(UiModemState state)
 {
@@ -336,6 +364,14 @@ static void drawHeader(const char *title)
 
 static void drawFooter(const char *text)
 {
+    gdispFillArea(
+        0,
+        FOOTER_LINE_Y,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT - FOOTER_LINE_Y,
+        Black);
+
+
     gdispDrawLine(
         10,
         FOOTER_LINE_Y,
@@ -787,6 +823,13 @@ UiAction uiHandleKey(UiKey key)
             break;
 
         case UI_KEY_ENTER:
+            if (pageAccessForRole(
+                    current_role,
+                    selected) == UI_ACCESS_DENIED) {
+                drawFooter("ADMIN LOGIN REQUIRED");
+                break;
+            }
+
             current_page = selected;
             drawPage();
             break;
