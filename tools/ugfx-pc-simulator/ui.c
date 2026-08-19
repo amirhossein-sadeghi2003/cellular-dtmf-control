@@ -325,6 +325,84 @@ static void drawFooter(const char *text)
         Gray);
 }
 
+static void drawMenuIcon(int item_index, int x, int y, 
+    color_t color){
+    int row;
+    int column;
+    
+    switch (item_index) {
+        case 0:
+            gdispDrawLine(x, y + 8, x + 3, y + 8, color);
+            gdispDrawLine(x + 3, y + 8, x + 6, y + 4, color);
+            gdispDrawLine(x + 6, y + 4, x + 9, y + 12, color);
+            gdispDrawLine(x + 9, y + 12, x + 12, y + 8, color);
+            gdispDrawLine(x + 12, y + 8, x + 15, y + 8, color);
+            break;
+
+        case 1:
+            gdispDrawBox(x + 3, y + 1, 10, 14, color);
+            gdispDrawLine(x + 5, y + 3, x + 10, y + 3, color);
+            gdispFillArea(x + 7, y + 12, 2, 2, color);
+            break;
+
+        case 2:
+            for (row = 0; row < 4; row++) {
+                for (column = 0; column < 3; column++) {
+                    gdispFillArea( x + 2 + (column * 5),
+                        y + 1 + (row * 4),
+                        2,
+                        2,
+                        color);
+                }
+            }
+            break;
+
+        case 3:
+            gdispFillArea(x + 1, y + 11, 2, 4, color);
+            gdispFillArea(x + 5, y + 8, 2, 7, color);
+            gdispFillArea(x + 9, y + 5, 2, 10, color);
+            gdispFillArea(x + 13, y + 2, 2, 13, color);
+            break; 
+
+        case 4:
+            gdispFillArea( x + 1, y + 6,
+            4,
+            5,
+            color);
+
+            gdispDrawLine(x + 5, y + 6, x + 9, y + 2, color);
+            gdispDrawLine(x + 9, y + 2, x + 9, y + 14, color);
+            gdispDrawLine(x + 9, y + 14, x + 5, y + 10, color);
+            gdispDrawLine(x + 12, y + 5, x + 15, y + 8, color);
+            gdispDrawLine(x + 15, y + 8, x + 12, y + 11, color);
+            break;        
+        
+        case 5:         
+            gdispDrawBox(x + 1, y + 1, 9, 9, color);
+            gdispDrawLine(x + 9, y + 9, x + 15, y + 15, color);
+            gdispDrawLine(x + 5, y + 3, x + 5, y + 7, color);
+            gdispDrawLine(x + 3, y + 5, x + 7, y + 5, color);
+            break;
+        
+        case 6:
+            gdispDrawLine(x + 1, y + 3, x + 15, y + 3, color);
+            gdispFillArea(x + 4, y + 1, 3, 5, color);
+
+            gdispDrawLine(x + 1, y + 8, x + 15, y + 8, color);
+            gdispFillArea(x + 10, y + 6, 3, 5, color);
+
+            gdispDrawLine(x + 1, y + 13, x + 15, y + 13, color);
+            gdispFillArea(x + 6, y + 11, 3, 5, color);
+            break;   
+
+        
+        default:
+            break;
+    }
+}
+
+
+
 static void drawMenu(void)
 {
     int i;
@@ -351,20 +429,27 @@ static void drawMenu(void)
         y = CONTENT_TOP + 10 + (i * 25);
 
         if (i == selected) {
-            gdispFillArea( 12, y - 3,
-            SCREEN_WIDTH - 24,
-            23,
-            Blue);
-            
-            gdispDrawString( 40, y, menu_items[i],
-            font_menu,
-            Yellow);
-        } else {
-            gdispDrawString( 40, y, menu_items[i],
+            gdispFillArea(
+                12,
+                y - 3,
+                SCREEN_WIDTH - 24,
+                23,
+                Blue);
+        }
+
+        drawMenuIcon(
+            i,
+            20,
+            y + 1,
+            White);
+
+        gdispDrawString(
+            40,
+            y,
+            menu_items[i],
             font_menu,
             White);
-            }
-    }
+        }
 
     drawFooter("ENTER: OPEN   ESC: EXIT");
 }
