@@ -42,6 +42,9 @@ typedef struct {
 
     bool auto_answer_enabled;
     bool dtmf_detection_enabled;
+    uint8_t display_brightness_percent;
+    uint16_t screen_timeout_seconds;
+    uint8_t status_refresh_interval_seconds;
 
     char caller[UI_CALLER_MAX_LENGTH];
     char operator_name[UI_OPERATOR_MAX_LENGTH];

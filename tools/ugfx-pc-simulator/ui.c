@@ -24,6 +24,8 @@
 #define FOOTER_LINE_Y 285
 #define FOOTER_TEXT_Y 295
 
+#define DISPLAY_SETTING_COUNT 3
+
 typedef enum{
     UI_ROLE_USER = 0,
     UI_ROLE_ADMIN
@@ -58,6 +60,8 @@ static char pin_digits[ADMIN_PIN_LENGTH + 1];
 static int pin_cursor;
 static int pending_page;
 static const char admin_pin[] = "1234";
+static int display_selected;
+static bool display_editing;
 
 
 static const char *roleText(UiRole role)
@@ -791,8 +795,68 @@ static void drawNetworkPage(void)
 
 
 
+static void drawDisplaySelection(
+    int item_index,
+    int value_y)
+{
+    if (display_selected != item_index)
+        return;
+
+    gdispFillArea(
+        10,
+        value_y - 7,
+        SCREEN_WIDTH - 20,
+        28,
+        Blue);
+}
+
+
+
+
+
+
 static void drawDisplayPage(void)
 {
+    char brightness_text[8];
+    char timeout_text[12];
+    char refresh_text[12];
+    const char *mode_text;
+    color_t mode_color;
+    UiPageAccess access;
+
+    access = pageAccessForRole(
+        current_role,
+        4);
+
+    if (display_editing) {
+        mode_text = "EDIT MODE";
+        mode_color = Yellow;
+    } else if (access == UI_ACCESS_EDITABLE) {
+        mode_text = "ALL SETTINGS UNLOCKED";
+        mode_color = Green;
+    } else {
+        mode_text = "BRIGHTNESS ONLY";
+        mode_color = Gray;
+    }
+
+    snprintf(
+        brightness_text,
+        sizeof(brightness_text),
+        "%u%%",
+        (unsigned int)ui_model->display_brightness_percent);
+
+    snprintf(
+        timeout_text,
+        sizeof(timeout_text),
+        "%u s",
+        (unsigned int)ui_model->screen_timeout_seconds);
+
+    snprintf(
+        refresh_text,
+        sizeof(refresh_text),
+        "%u s",
+        (unsigned int)ui_model->status_refresh_interval_seconds);
+
     beginPage("DISPLAY");
 
     gdispDrawString(
@@ -804,26 +868,161 @@ static void drawDisplayPage(void)
 
     drawAccessBadge(4);
 
-    gdispDrawString(
-        15,
-        125,
-        "Display settings will",
-        font_body,
-        White);
+    drawDisplaySelection(0, 120);
+    drawValue(
+        120,
+        "BRIGHTNESS",
+        brightness_text,
+        Green);
+
+    drawDisplaySelection(1, 155);
+    drawValue(
+        155,
+        "TIMEOUT",
+        timeout_text,
+        access == UI_ACCESS_EDITABLE ? Green : Gray);
+
+    drawDisplaySelection(2, 190);
+    drawValue(
+        190,
+        "REFRESH",
+        refresh_text,
+        access == UI_ACCESS_EDITABLE ? Green : Gray);
 
     gdispDrawString(
         15,
-        150,
-        "be implemented next.",
-        font_body,
-        White);
+        225,
+        mode_text,
+        font_status,
+        mode_color);
 
-    drawFooter("LEFT / ESC: BACK");
+    drawFooter(
+        display_editing
+            ? "LEFT/RIGHT: CHANGE   ENTER: DONE"
+            : "UP/DOWN: SELECT   ENTER: EDIT");
+}
+
+static bool displaySettingEditable(int item_index)
+{
+    if (item_index == 0)
+        return true;
+
+    if (current_role == UI_ROLE_ADMIN)
+        return true;
+
+    return false;
+}
+
+
+static void adjustDisplaySetting(int direction)
+{
+    switch (display_selected) {
+    case 0:
+        if (direction > 0 &&
+            ui_model->display_brightness_percent < 100) {
+            ui_model->display_brightness_percent += 10;
+        } else if (
+            direction < 0 &&
+            ui_model->display_brightness_percent > 10) {
+            ui_model->display_brightness_percent -= 10;
+        }
+        break;
+
+    case 1:
+        if (direction > 0 &&
+            ui_model->screen_timeout_seconds < 120) {
+            ui_model->screen_timeout_seconds += 15;
+        } else if (
+            direction < 0 &&
+            ui_model->screen_timeout_seconds > 15) {
+            ui_model->screen_timeout_seconds -= 15;
+        }
+        break;
+
+    case 2:
+        if (direction > 0 &&
+            ui_model->status_refresh_interval_seconds < 10) {
+            ui_model->status_refresh_interval_seconds++;
+        } else if (
+            direction < 0 &&
+            ui_model->status_refresh_interval_seconds > 1) {
+            ui_model->status_refresh_interval_seconds--;
+        }
+        break;
+
+    default:
+        break;
+    }
 }
 
 
 
+static void handleDisplayKey(UiKey key)
+{
+    if (display_editing) {
+        switch (key) {
+        case UI_KEY_LEFT:
+            adjustDisplaySetting(-1);
+            drawDisplayPage();
+            break;
 
+        case UI_KEY_RIGHT:
+            adjustDisplaySetting(1);
+            drawDisplayPage();
+            break;
+
+        case UI_KEY_ENTER:
+        case UI_KEY_BACK:
+            display_editing = false;
+            drawDisplayPage();
+            break;
+
+        default:
+            break;
+        }
+
+        return;
+    }
+
+    switch (key) {
+    case UI_KEY_UP:
+        display_selected--;
+
+        if (display_selected < 0)
+            display_selected = DISPLAY_SETTING_COUNT - 1;
+
+        drawDisplayPage();
+        break;
+
+    case UI_KEY_DOWN:
+        display_selected++;
+
+        if (display_selected >= DISPLAY_SETTING_COUNT)
+            display_selected = 0;
+
+        drawDisplayPage();
+        break;
+
+    case UI_KEY_ENTER:
+        if (!displaySettingEditable(display_selected)) {
+            uiShowError("ADMIN ONLY");
+            break;
+        }
+
+        display_editing = true;
+        drawDisplayPage();
+        break;
+
+    case UI_KEY_LEFT:
+    case UI_KEY_BACK:
+        current_page = PAGE_MENU;
+        drawMenu();
+        break;
+
+    default:
+        break;
+    }
+}
 
 
 
@@ -933,12 +1132,6 @@ static void drawSettingsPage(void)
 
     drawFooter("ENTER: LOCK   LEFT / ESC: BACK");
 }
-
-
-
-
-
-
 
 
 
@@ -1146,6 +1339,10 @@ UiAction uiHandleKey(UiKey key)
                 break;
             }
 
+            if (selected == 4){
+                display_selected = 0;
+                display_editing = false;
+            }
             current_page = selected;
             drawPage();
             break;
@@ -1158,6 +1355,8 @@ UiAction uiHandleKey(UiKey key)
         }
     } else if (current_page == PAGE_ADMIN_LOGIN) {
         handleAdminLoginKey(key);
+    } else if (current_page == 4) {
+        handleDisplayKey(key);
     } else {
         switch (key) {
         case UI_KEY_ENTER:
