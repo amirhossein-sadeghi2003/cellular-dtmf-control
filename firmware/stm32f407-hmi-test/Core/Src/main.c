@@ -26,12 +26,24 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum {
+	KEY_EVENT_NONE = 0,
+	 KEY_EVENT_UP,
+	 kEY_EVENT_DOWN,
+	 KEY_EVENT_RIGHT,
+	 KEY_EVENT_ENTER
+} KeyEvent_t;
 
+typedef struct {
+	uint8_t last_raw_state;
+	uint8_t stable_state;
+	uint8_t stable_count;
+} KeyDebounce_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define KEY_DEBOUNCE_SAMPLES 3U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,18 +59,54 @@ volatile uint8_t key_down_pressed = 0;
 volatile uint8_t key_left_pressed = 0;
 volatile uint8_t key_right_pressed = 0;
 volatile uint8_t key_ok_pressed = 0;
+
+static KeyDebounce_t key_up_db = {0};
+static KeyDebounce_t key_down_db = {0};
+static KeyDebounce_t key_left_db = {0};
+static KeyDebounce_t key_right_db = {0};
+static KeyDebounce_t key_ok_db = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
-
+static uint8_t Key_ReadDebounced(KeyDebounce_t *state,
+							GPIO_TypeDef  *gpio_port, uint16_t gpio_pin);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static uint8_t Key_ReadDebounced(
+    KeyDebounce_t *state,
+    GPIO_TypeDef *gpio_port,
+    uint16_t gpio_pin)
+{
+    uint8_t raw_state;
 
+    if (HAL_GPIO_ReadPin(
+            gpio_port,
+            gpio_pin) == GPIO_PIN_RESET) {
+        raw_state = 1U;
+    } else {
+        raw_state = 0U;
+    }
+
+    if (raw_state == state->last_raw_state) {
+        if (state->stable_count < KEY_DEBOUNCE_SAMPLES) {
+            state->stable_count++;
+        }
+    } else {
+        state->last_raw_state = raw_state;
+        state->stable_count = 1U;
+    }
+
+    if (state->stable_count >= KEY_DEBOUNCE_SAMPLES) {
+        state->stable_state = raw_state;
+    }
+
+    return state->stable_state;
+}
 /* USER CODE END 0 */
 
 /**
@@ -101,45 +149,32 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  	 if (HAL_GPIO_ReadPin(
-	          KEY_UP_GPIO_Port,
-	          KEY_UP_Pin) == GPIO_PIN_RESET) {
-	      key_up_pressed = 1;
-	  } else {
-	      key_up_pressed = 0;
-	  }
+	  key_up_pressed = Key_ReadDebounced(
+	      &key_up_db,
+	      KEY_UP_GPIO_Port,
+	      KEY_UP_Pin);
 
-	  if (HAL_GPIO_ReadPin(
-	          KEY_DOWN_GPIO_Port,
-	          KEY_DOWN_Pin) == GPIO_PIN_RESET) {
-	      key_down_pressed = 1;
-	  } else {
-	      key_down_pressed = 0;
-	  }
+	  key_down_pressed = Key_ReadDebounced(
+	      &key_down_db,
+	      KEY_DOWN_GPIO_Port,
+	      KEY_DOWN_Pin);
 
-	  if (HAL_GPIO_ReadPin(
-	          KEY_LEFT_GPIO_Port,
-	          KEY_LEFT_Pin) == GPIO_PIN_RESET) {
-	      key_left_pressed = 1;
-	  } else {
-	      key_left_pressed = 0;
-	  }
+	  key_left_pressed = Key_ReadDebounced(
+	      &key_left_db,
+	      KEY_LEFT_GPIO_Port,
+	      KEY_LEFT_Pin);
 
-	  if (HAL_GPIO_ReadPin(
-	          KEY_RIGHT_GPIO_Port,
-	          KEY_RIGHT_Pin) == GPIO_PIN_RESET) {
-	      key_right_pressed = 1;
-	  } else {
-	      key_right_pressed = 0;
-	  }
+	  key_right_pressed = Key_ReadDebounced(
+	      &key_right_db,
+	      KEY_RIGHT_GPIO_Port,
+	      KEY_RIGHT_Pin);
 
-	  if (HAL_GPIO_ReadPin(
-	          KEY_OK_GPIO_Port,
-	          KEY_OK_Pin) == GPIO_PIN_RESET) {
-	      key_ok_pressed = 1;
-	  } else {
-	      key_ok_pressed = 0;
-	  }
+	  key_ok_pressed = Key_ReadDebounced(
+	      &key_ok_db,
+	      KEY_OK_GPIO_Port,
+	      KEY_OK_Pin);
+
+	  HAL_Delay(10);
 
 	  HAL_Delay(10);
   }
