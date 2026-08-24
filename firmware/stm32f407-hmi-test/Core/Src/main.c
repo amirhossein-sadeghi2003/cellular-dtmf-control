@@ -87,6 +87,36 @@ static KeyDebounce_t key_down_db = {0};
 static KeyDebounce_t key_left_db = {0};
 static KeyDebounce_t key_right_db = {0};
 static KeyDebounce_t key_ok_db = {0};
+
+
+static const uint8_t font_5x7[26][7] = {
+    {0x0EU, 0x11U, 0x11U, 0x1FU, 0x11U, 0x11U, 0x11U}, /* A */
+    {0x1EU, 0x11U, 0x11U, 0x1EU, 0x11U, 0x11U, 0x1EU}, /* B */
+    {0x0EU, 0x11U, 0x10U, 0x10U, 0x10U, 0x11U, 0x0EU}, /* C */
+    {0x1EU, 0x11U, 0x11U, 0x11U, 0x11U, 0x11U, 0x1EU}, /* D */
+    {0x1FU, 0x10U, 0x10U, 0x1EU, 0x10U, 0x10U, 0x1FU}, /* E */
+    {0x1FU, 0x10U, 0x10U, 0x1EU, 0x10U, 0x10U, 0x10U}, /* F */
+    {0x0EU, 0x11U, 0x10U, 0x17U, 0x11U, 0x11U, 0x0FU}, /* G */
+    {0x11U, 0x11U, 0x11U, 0x1FU, 0x11U, 0x11U, 0x11U}, /* H */
+    {0x1FU, 0x04U, 0x04U, 0x04U, 0x04U, 0x04U, 0x1FU}, /* I */
+    {0x01U, 0x01U, 0x01U, 0x01U, 0x11U, 0x11U, 0x0EU}, /* J */
+    {0x11U, 0x12U, 0x14U, 0x18U, 0x14U, 0x12U, 0x11U}, /* K */
+    {0x10U, 0x10U, 0x10U, 0x10U, 0x10U, 0x10U, 0x1FU}, /* L */
+    {0x11U, 0x1BU, 0x15U, 0x15U, 0x11U, 0x11U, 0x11U}, /* M */
+    {0x11U, 0x19U, 0x15U, 0x13U, 0x11U, 0x11U, 0x11U}, /* N */
+    {0x0EU, 0x11U, 0x11U, 0x11U, 0x11U, 0x11U, 0x0EU}, /* O */
+    {0x1EU, 0x11U, 0x11U, 0x1EU, 0x10U, 0x10U, 0x10U}, /* P */
+    {0x0EU, 0x11U, 0x11U, 0x11U, 0x15U, 0x12U, 0x0DU}, /* Q */
+    {0x1EU, 0x11U, 0x11U, 0x1EU, 0x14U, 0x12U, 0x11U}, /* R */
+    {0x0FU, 0x10U, 0x10U, 0x0EU, 0x01U, 0x01U, 0x1EU}, /* S */
+    {0x1FU, 0x04U, 0x04U, 0x04U, 0x04U, 0x04U, 0x04U}, /* T */
+    {0x11U, 0x11U, 0x11U, 0x11U, 0x11U, 0x11U, 0x0EU}, /* U */
+    {0x11U, 0x11U, 0x11U, 0x11U, 0x11U, 0x0AU, 0x04U}, /* V */
+    {0x11U, 0x11U, 0x11U, 0x15U, 0x15U, 0x15U, 0x0AU}, /* W */
+    {0x11U, 0x11U, 0x0AU, 0x04U, 0x0AU, 0x11U, 0x11U}, /* X */
+    {0x11U, 0x11U, 0x0AU, 0x04U, 0x04U, 0x04U, 0x04U}, /* Y */
+    {0x1FU, 0x01U, 0x02U, 0x04U, 0x08U, 0x10U, 0x1FU}  /* Z */
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -312,6 +342,137 @@ static void LCD_FillScreen(uint16_t color)
 }
 
 
+static void LCD_FillRectangle(
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height,
+    uint16_t color)
+{
+    uint32_t pixel_count;
+    uint32_t pixel_index;
+    uint8_t color_high;
+    uint8_t color_low;
+
+    if ((width == 0U) || (height == 0U)) {
+        return;
+    }
+
+    if ((x >= LCD_WIDTH) || (y >= LCD_HEIGHT)) {
+        return;
+    }
+
+    if ((uint32_t)x + width > LCD_WIDTH) {
+        width = (uint16_t)(LCD_WIDTH - x);
+    }
+
+    if ((uint32_t)y + height > LCD_HEIGHT) {
+        height = (uint16_t)(LCD_HEIGHT - y);
+    }
+
+    pixel_count =
+        (uint32_t)width * height;
+
+    color_high =
+        (uint8_t)(color >> 8);
+
+    color_low =
+        (uint8_t)(color & 0xFFU);
+
+    LCD_SetAddressWindow(
+        x,
+        y,
+        (uint16_t)(x + width - 1U),
+        (uint16_t)(y + height - 1U));
+
+    LCD_DataMode();
+    LCD_Select();
+
+    for (pixel_index = 0U;
+         pixel_index < pixel_count;
+         pixel_index++) {
+        LCD_SPI_WriteByte(color_high);
+        LCD_SPI_WriteByte(color_low);
+    }
+
+    LCD_Unselect();
+}
+
+static void LCD_DrawCharacter(
+    uint16_t x,
+    uint16_t y,
+    char character,
+    uint16_t color,
+    uint8_t scale)
+{
+    uint8_t character_index;
+    uint8_t row;
+    uint8_t column;
+    uint8_t bit_mask;
+
+    if (scale == 0U) {
+        return;
+    }
+
+    if ((character < 'A') || (character > 'Z')) {
+        return;
+    }
+
+    character_index =
+        (uint8_t)(character - 'A');
+
+    for (row = 0U; row < 7U; row++) {
+        for (column = 0U; column < 5U; column++) {
+            bit_mask =
+                (uint8_t)(1U << (4U - column));
+
+            if ((font_5x7[character_index][row]
+                    & bit_mask) != 0U) {
+                LCD_FillRectangle(
+                    (uint16_t)(
+                        x + ((uint16_t)column * scale)),
+                    (uint16_t)(
+                        y + ((uint16_t)row * scale)),
+                    scale,
+                    scale,
+                    color);
+            }
+        }
+    }
+}
+
+
+
+
+static void LCD_DrawString(
+    uint16_t x,
+    uint16_t y,
+    const char *text,
+    uint16_t color,
+    uint8_t scale)
+{
+    uint16_t cursor_x;
+
+    if ((text == NULL) || (scale == 0U)) {
+        return;
+    }
+
+    cursor_x = x;
+
+    while (*text != '\0') {
+        LCD_DrawCharacter(
+            cursor_x,
+            y,
+            *text,
+            color,
+            scale);
+
+        cursor_x = (uint16_t)(
+            cursor_x + ((uint16_t)6U * scale));
+
+        text++;
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -345,12 +506,23 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-LCD_Init();
-LCD_FillScreen(LCD_COLOR_RED);
-LCD_FillScreen(LCD_COLOR_BLACK);
-LCD_FillScreen(LCD_COLOR_WHITE);
-LCD_FillScreen(LCD_COLOR_BLUE);
-LCD_FillScreen(LCD_COLOR_GREEN);
+  LCD_Init();
+
+  LCD_FillScreen(LCD_COLOR_BLACK);
+
+  LCD_FillRectangle(
+      20U,
+      50U,
+      200U,
+      40U,
+      LCD_COLOR_BLUE);
+
+  LCD_DrawString(
+      25U,
+      63U,
+      "CELLULAR CONTROL",
+      LCD_COLOR_WHITE,
+      2U);
   /* USER CODE END 2 */
 
   /* Infinite loop */
