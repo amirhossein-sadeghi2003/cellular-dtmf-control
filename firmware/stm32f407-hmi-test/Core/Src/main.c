@@ -55,8 +55,17 @@ typedef struct {
 #define ILI9341_CMD_MEMORY_ACCESS_CONTROL   0x36U
 #define ILI9341_CMD_PIXEL_FORMAT_SET        0x3AU
 
-#define LCD_WIDTH   240U
-#define LCD_HEIGHT  320U
+#define LCD_WIDTH       240U
+#define LCD_HEIGHT      320U
+
+
+#define UI_SCREEN_WIDTH       240U
+#define UI_SCREEN_HEIGHT      320U
+
+#define UI_STATUS_BAR_HEIGHT  22U
+#define UI_TITLE_BOTTOM_Y     43U
+#define UI_CONTENT_TOP        (UI_TITLE_BOTTOM_Y + 10U)
+#define UI_FOOTER_LINE_Y      285U
 
 
 
@@ -65,6 +74,23 @@ typedef struct {
 #define LCD_COLOR_GREEN   0x07E0U
 #define LCD_COLOR_BLUE    0x001FU
 #define LCD_COLOR_WHITE   0xFFFFU
+#define LCD_COLOR_GRAY  0x8410U
+
+
+
+#define UI_MENU_ITEM_COUNT  7U
+
+#define UI_MENU_FRAME_X     10U
+#define UI_MENU_FRAME_Y     49U
+#define UI_MENU_FRAME_WIDTH 220U
+#define UI_MENU_FRAME_HEIGHT 222U
+
+#define UI_MENU_ITEM_X      16U
+#define UI_MENU_FIRST_Y     55U
+#define UI_MENU_ITEM_WIDTH  208U
+#define UI_MENU_ITEM_HEIGHT 28U
+#define UI_MENU_ROW_STEP    30U
+#define UI_MENU_TEXT_X      28U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -116,6 +142,19 @@ static const uint8_t font_5x7[26][7] = {
     {0x11U, 0x11U, 0x0AU, 0x04U, 0x0AU, 0x11U, 0x11U}, /* X */
     {0x11U, 0x11U, 0x0AU, 0x04U, 0x04U, 0x04U, 0x04U}, /* Y */
     {0x1FU, 0x01U, 0x02U, 0x04U, 0x08U, 0x10U, 0x1FU}  /* Z */
+};
+
+
+
+static const char * const ui_menu_items[UI_MENU_ITEM_COUNT] =
+{
+    "STATUS",
+    "CALL",
+    "DTMF",
+    "NETWORK",
+    "DISPLAY",
+    "DIAGNOSTICS",
+    "SETTINGS"
 };
 /* USER CODE END PV */
 
@@ -473,6 +512,182 @@ static void LCD_DrawString(
         text++;
     }
 }
+
+
+
+static void LCD_DrawRectangle(
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height,
+    uint16_t color)
+{
+    if ((width == 0U) || (height == 0U))
+    {
+        return;
+    }
+
+    /* Top edge */
+    LCD_FillRectangle(x, y, width, 1U, color);
+
+    /* Bottom edge */
+    if (height > 1U)
+    {
+        LCD_FillRectangle(
+            x,
+            y + height - 1U,
+            width,
+            1U,
+            color);
+    }
+
+    /* Left and right edges */
+    if (height > 2U)
+    {
+        (
+            x,
+            y + 1U,
+            1U,
+            height - 2U,
+            color);
+
+        if (width > 1U)
+        {
+            LCD_FillRectangle(
+                x + width - 1U,
+                y + 1U,
+                1U,
+                height - 2U,
+                color);
+        }
+    }
+}
+
+
+
+
+static void UI_DrawMenuItem(
+    uint8_t item_index,
+    uint8_t selected)
+{
+    uint16_t item_y;
+    uint16_t background_color;
+
+    if (item_index >= UI_MENU_ITEM_COUNT)
+    {
+        return;
+    }
+
+    item_y = UI_MENU_FIRST_Y
+           + ((uint16_t)item_index * UI_MENU_ROW_STEP);
+
+    if (selected != 0U)
+    {
+        background_color = LCD_COLOR_BLUE;
+    }
+    else
+    {
+        background_color = LCD_COLOR_BLACK;
+    }
+
+    LCD_FillRectangle(
+        UI_MENU_ITEM_X,
+        item_y,
+        UI_MENU_ITEM_WIDTH,
+        UI_MENU_ITEM_HEIGHT,
+        background_color);
+
+    LCD_DrawString(
+        UI_MENU_TEXT_X,
+        item_y + 7U,
+        ui_menu_items[item_index],
+        LCD_COLOR_WHITE,
+        2U);
+}
+
+
+
+static void UI_DrawMainMenu(uint8_t selected_item)
+{
+    uint8_t item_index;
+
+    if (selected_item >= UI_MENU_ITEM_COUNT)
+    {
+        selected_item = 0U;
+    }
+
+    LCD_FillScreen(LCD_COLOR_BLACK);
+
+    /* Status bar */
+    LCD_FillRectangle(
+        0U,
+        0U,
+        UI_SCREEN_WIDTH,
+        UI_STATUS_BAR_HEIGHT,
+        LCD_COLOR_GRAY);
+
+    LCD_DrawString(
+        6U,
+        7U,
+        "MODEM READY",
+        LCD_COLOR_BLACK,
+        1U);
+
+    LCD_DrawString(
+        210U,
+        7U,
+        "USER",
+        LCD_COLOR_BLACK,
+        1U);
+
+    /* Page title */
+    LCD_DrawString(
+        24U,
+        26U,
+        "CELLULAR CONTROL",
+        LCD_COLOR_WHITE,
+        2U);
+
+    /* Main menu frame */
+    LCD_DrawRectangle(
+        UI_MENU_FRAME_X,
+        UI_MENU_FRAME_Y,
+        UI_MENU_FRAME_WIDTH,
+        UI_MENU_FRAME_HEIGHT,
+        LCD_COLOR_GRAY);
+
+    /* Menu items */
+    for (item_index = 0U;
+         item_index < UI_MENU_ITEM_COUNT;
+         item_index++)
+    {
+        UI_DrawMenuItem(
+            item_index,
+            item_index == selected_item);
+    }
+
+    /* Footer */
+    LCD_FillRectangle(
+        0U,
+        UI_FOOTER_LINE_Y,
+        UI_SCREEN_WIDTH,
+        1U,
+        LCD_COLOR_GRAY);
+
+    LCD_DrawString(
+        66U,
+        297U,
+        "UP DOWN  OK SELECT",
+        LCD_COLOR_WHITE,
+        1U);
+}
+
+
+
+
+
+
+
 /* USER CODE END 0 */
 
 /**
@@ -508,21 +723,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   LCD_Init();
 
-  LCD_FillScreen(LCD_COLOR_BLACK);
-
-  LCD_FillRectangle(
-      20U,
-      50U,
-      200U,
-      40U,
-      LCD_COLOR_BLUE);
-
-  LCD_DrawString(
-      25U,
-      63U,
-      "CELLULAR CONTROL",
-      LCD_COLOR_WHITE,
-      2U);
+  UI_DrawMainMenu(0U);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -628,7 +829,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
