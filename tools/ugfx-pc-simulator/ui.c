@@ -397,7 +397,7 @@ static void drawFooter(const char *text)
         FOOTER_TEXT_Y,
         text,
         font_status,
-        Gray);
+        White);
 }
 
 static void drawMenuIcon(int item_index, int x, int y, 
@@ -471,10 +471,43 @@ static void drawMenuIcon(int item_index, int x, int y,
 
 
 
+
+static void drawMenuItem(int item_index, bool highlighted)
+{
+    int y;
+
+    y = CONTENT_TOP + 10 + (item_index * 25);
+
+    /*
+     * Clear the previous contents of this row.
+     */
+    gdispFillArea(
+        12,
+        y - 3,
+        SCREEN_WIDTH - 24,
+        23,
+        highlighted ? Blue : Black);
+
+    drawMenuIcon(
+        item_index,
+        20,
+        y + 1,
+        White);
+
+    gdispDrawString(
+        40,
+        y,
+        menu_items[item_index],
+        font_menu,
+        White);
+}
+
+
+
+
 static void drawMenu(void)
 {
     int i;
-    int y;
 
     gdispClear(Black);
     drawHeader("CELLULAR CONTROL");
@@ -494,32 +527,10 @@ static void drawMenu(void)
         Gray);
 
     for (i = 0; i < MENU_COUNT; i++) {
-        y = CONTENT_TOP + 10 + (i * 25);
+        drawMenuItem(i, i == selected);
+    }
 
-        if (i == selected) {
-            gdispFillArea(
-                12,
-                y - 3,
-                SCREEN_WIDTH - 24,
-                23,
-                Blue);
-        }
-
-        drawMenuIcon(
-            i,
-            20,
-            y + 1,
-            White);
-
-        gdispDrawString(
-            40,
-            y,
-            menu_items[i],
-            font_menu,
-            White);
-        }
-
-    drawFooter("ENTER: OPEN   ESC: EXIT");
+    drawFooter("ENTER: OPEN   LEFT: BACK");
 }
 
 
@@ -795,38 +806,93 @@ static void drawNetworkPage(void)
 
 
 
-static void drawDisplaySelection(
+static void drawDisplayItem(
     int item_index,
-    int value_y)
+    bool highlighted)
 {
-    if (display_selected != item_index)
+    int value_y;
+    const char *label;
+    char value_text[12];
+    color_t value_color;
+    UiPageAccess access;
+
+    access = pageAccessForRole(current_role, 4);
+
+    switch (item_index) {
+    case 0:
+        value_y = 120;
+        label = "BRIGHTNESS";
+
+        snprintf(
+            value_text,
+            sizeof(value_text),
+            "%u%%",
+            (unsigned int)
+                ui_model->display_brightness_percent);
+
+        value_color = Green;
+        break;
+
+    case 1:
+        value_y = 155;
+        label = "TIMEOUT";
+
+        snprintf(
+            value_text,
+            sizeof(value_text),
+            "%u s",
+            (unsigned int)
+                ui_model->screen_timeout_seconds);
+
+        value_color =
+            access == UI_ACCESS_EDITABLE
+                ? Green
+                : White;
+        break;
+
+    case 2:
+        value_y = 190;
+        label = "REFRESH";
+
+        snprintf(
+            value_text,
+            sizeof(value_text),
+            "%u s",
+            (unsigned int)
+                ui_model->status_refresh_interval_seconds);
+
+        value_color =
+            access == UI_ACCESS_EDITABLE
+                ? Green
+                : White;
+        break;
+
+    default:
         return;
+    }
 
     gdispFillArea(
         10,
         value_y - 7,
         SCREEN_WIDTH - 20,
         28,
-        Blue);
+        highlighted ? Blue : Black);
+
+    drawValue(
+        value_y,
+        label,
+        value_text,
+        value_color);
 }
 
 
-
-
-
-
-static void drawDisplayPage(void)
+static void drawDisplayMode(void)
 {
-    char brightness_text[8];
-    char timeout_text[12];
-    char refresh_text[12];
     const char *mode_text;
     color_t mode_color;
     UiPageAccess access;
 
-    access = pageAccessForRole(
-        current_role,
-        4);
+    access = pageAccessForRole(current_role, 4);
 
     if (display_editing) {
         mode_text = "EDIT MODE";
@@ -836,58 +902,15 @@ static void drawDisplayPage(void)
         mode_color = Green;
     } else {
         mode_text = "BRIGHTNESS ONLY";
-        mode_color = Gray;
+        mode_color = White;
     }
 
-    snprintf(
-        brightness_text,
-        sizeof(brightness_text),
-        "%u%%",
-        (unsigned int)ui_model->display_brightness_percent);
-
-    snprintf(
-        timeout_text,
-        sizeof(timeout_text),
-        "%u s",
-        (unsigned int)ui_model->screen_timeout_seconds);
-
-    snprintf(
-        refresh_text,
-        sizeof(refresh_text),
-        "%u s",
-        (unsigned int)ui_model->status_refresh_interval_seconds);
-
-    beginPage("DISPLAY");
-
-    gdispDrawString(
-        15,
-        82,
-        "DISPLAY CONTROL",
-        font_body,
-        Yellow);
-
-    drawAccessBadge(4);
-
-    drawDisplaySelection(0, 120);
-    drawValue(
-        120,
-        "BRIGHTNESS",
-        brightness_text,
-        Green);
-
-    drawDisplaySelection(1, 155);
-    drawValue(
-        155,
-        "TIMEOUT",
-        timeout_text,
-        access == UI_ACCESS_EDITABLE ? Green : Gray);
-
-    drawDisplaySelection(2, 190);
-    drawValue(
-        190,
-        "REFRESH",
-        refresh_text,
-        access == UI_ACCESS_EDITABLE ? Green : Gray);
+    gdispFillArea(
+        10,
+        215,
+        SCREEN_WIDTH - 20,
+        45,
+        Black);
 
     gdispDrawString(
         15,
@@ -902,6 +925,30 @@ static void drawDisplayPage(void)
             : "UP/DOWN: SELECT   ENTER: EDIT");
 }
 
+
+static void drawDisplayPage(void)
+{
+    int i;
+
+    beginPage("DISPLAY");
+
+    gdispDrawString(
+        15,
+        82,
+        "DISPLAY CONTROL",
+        font_body,
+        Yellow);
+
+    drawAccessBadge(4);
+
+    for (i = 0; i < DISPLAY_SETTING_COUNT; i++) {
+        drawDisplayItem(
+            i,
+            i == display_selected);
+    }
+
+    drawDisplayMode();
+}
 static bool displaySettingEditable(int item_index)
 {
     if (item_index == 0)
@@ -959,22 +1006,30 @@ static void adjustDisplaySetting(int direction)
 
 static void handleDisplayKey(UiKey key)
 {
+    int previous_selected;
+
     if (display_editing) {
         switch (key) {
         case UI_KEY_LEFT:
             adjustDisplaySetting(-1);
-            drawDisplayPage();
+
+            drawDisplayItem(
+                display_selected,
+                true);
             break;
 
         case UI_KEY_RIGHT:
             adjustDisplaySetting(1);
-            drawDisplayPage();
+
+            drawDisplayItem(
+                display_selected,
+                true);
             break;
 
         case UI_KEY_ENTER:
         case UI_KEY_BACK:
             display_editing = false;
-            drawDisplayPage();
+            drawDisplayMode();
             break;
 
         default:
@@ -986,21 +1041,36 @@ static void handleDisplayKey(UiKey key)
 
     switch (key) {
     case UI_KEY_UP:
+        previous_selected = display_selected;
         display_selected--;
 
         if (display_selected < 0)
-            display_selected = DISPLAY_SETTING_COUNT - 1;
+            display_selected =
+                DISPLAY_SETTING_COUNT - 1;
 
-        drawDisplayPage();
+        drawDisplayItem(
+            previous_selected,
+            false);
+
+        drawDisplayItem(
+            display_selected,
+            true);
         break;
 
     case UI_KEY_DOWN:
+        previous_selected = display_selected;
         display_selected++;
 
         if (display_selected >= DISPLAY_SETTING_COUNT)
             display_selected = 0;
 
-        drawDisplayPage();
+        drawDisplayItem(
+            previous_selected,
+            false);
+
+        drawDisplayItem(
+            display_selected,
+            true);
         break;
 
     case UI_KEY_ENTER:
@@ -1010,7 +1080,7 @@ static void handleDisplayKey(UiKey key)
         }
 
         display_editing = true;
-        drawDisplayPage();
+        drawDisplayMode();
         break;
 
     case UI_KEY_LEFT:
@@ -1023,7 +1093,6 @@ static void handleDisplayKey(UiKey key)
         break;
     }
 }
-
 
 
 
@@ -1311,24 +1380,29 @@ void uiShowError(const char *message)
 
 UiAction uiHandleKey(UiKey key)
 {
+	int previous_selected;
     if (current_page == PAGE_MENU) {
         switch (key) {
         case UI_KEY_DOWN:
+            previous_selected = selected;
             selected++;
 
             if (selected >= MENU_COUNT)
                 selected = 0;
 
-            drawMenu();
+            drawMenuItem(previous_selected, false);
+            drawMenuItem(selected, true);
             break;
 
         case UI_KEY_UP:
+            previous_selected = selected;
             selected--;
 
             if (selected < 0)
                 selected = MENU_COUNT - 1;
 
-            drawMenu();
+            drawMenuItem(previous_selected, false);
+            drawMenuItem(selected, true);
             break;
 
         case UI_KEY_ENTER:

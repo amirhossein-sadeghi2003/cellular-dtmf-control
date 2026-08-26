@@ -1,0 +1,29 @@
+/*
+ * gfxconf.h
+ *
+ *  Created on: Aug 26, 2026
+ *      Author: amir
+ */
+
+#ifndef SRC_GFXCONF_H_
+#define SRC_GFXCONF_H_
+
+
+#define GFX_USE_OS_RAW32  GFXON
+
+#define GFX_USE_GDISP     GFXON
+#define GDISP_NEED_TEXT  GFXON
+
+#define GDISP_NEED_VALIDATION  GFXON
+#define GDISP_NEED_CLIP        GFXON
+
+#define GDISP_INCLUDE_FONT_DEJAVUSANS10  GFXON
+#define GDISP_INCLUDE_FONT_DEJAVUSANS12  GFXON
+#define GDISP_INCLUDE_FONT_DEJAVUSANS16  GFXON
+
+
+#define GFX_USE_GWIN      GFXOFF
+#define GFX_USE_GINPUT    GFXOFF
+
+
+#endif /* SRC_GFXCONF_H_ */

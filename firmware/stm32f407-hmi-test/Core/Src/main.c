@@ -18,7 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
+#include "gfx.h"
+#include "ui.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -108,6 +109,15 @@ volatile uint8_t key_left_pressed = 0;
 volatile uint8_t key_right_pressed = 0;
 volatile uint8_t key_ok_pressed = 0;
 
+static uint8_t key_up_previous = 0U;
+static uint8_t key_down_previous = 0U;
+static uint8_t key_left_previous = 0U;
+static uint8_t key_right_previous = 0U;
+static uint8_t key_ok_previous = 0U;
+
+
+
+
 static KeyDebounce_t key_up_db = {0};
 static KeyDebounce_t key_down_db = {0};
 static KeyDebounce_t key_left_db = {0};
@@ -156,6 +166,11 @@ static const char * const ui_menu_items[UI_MENU_ITEM_COUNT] =
     "DIAGNOSTICS",
     "SETTINGS"
 };
+
+
+
+static UiModel ui_model;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -165,6 +180,8 @@ static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
 static uint8_t Key_ReadDebounced(KeyDebounce_t *state,
 							GPIO_TypeDef  *gpio_port, uint16_t gpio_pin);
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -515,53 +532,6 @@ static void LCD_DrawString(
 
 
 
-static void LCD_DrawRectangle(
-    uint16_t x,
-    uint16_t y,
-    uint16_t width,
-    uint16_t height,
-    uint16_t color)
-{
-    if ((width == 0U) || (height == 0U))
-    {
-        return;
-    }
-
-    /* Top edge */
-    LCD_FillRectangle(x, y, width, 1U, color);
-
-    /* Bottom edge */
-    if (height > 1U)
-    {
-        LCD_FillRectangle(
-            x,
-            y + height - 1U,
-            width,
-            1U,
-            color);
-    }
-
-    /* Left and right edges */
-    if (height > 2U)
-    {
-        (
-            x,
-            y + 1U,
-            1U,
-            height - 2U,
-            color);
-
-        if (width > 1U)
-        {
-            LCD_FillRectangle(
-                x + width - 1U,
-                y + 1U,
-                1U,
-                height - 2U,
-                color);
-        }
-    }
-}
 
 
 
@@ -649,12 +619,7 @@ static void UI_DrawMainMenu(uint8_t selected_item)
         2U);
 
     /* Main menu frame */
-    LCD_DrawRectangle(
-        UI_MENU_FRAME_X,
-        UI_MENU_FRAME_Y,
-        UI_MENU_FRAME_WIDTH,
-        UI_MENU_FRAME_HEIGHT,
-        LCD_COLOR_GRAY);
+
 
     /* Menu items */
     for (item_index = 0U;
@@ -681,7 +646,6 @@ static void UI_DrawMainMenu(uint8_t selected_item)
         LCD_COLOR_WHITE,
         1U);
 }
-
 
 
 
@@ -721,9 +685,11 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-  LCD_Init();
+  gfxInit();
+  uiModelInit(&ui_model);
 
-  UI_DrawMainMenu(0U);
+uiInit(&ui_model);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -758,7 +724,36 @@ int main(void)
 	      KEY_OK_GPIO_Port,
 	      KEY_OK_Pin);
 
-	  HAL_Delay(10);
+	  if ((key_up_pressed != 0U) &&
+	      (key_up_previous == 0U)) {
+	      (void)uiHandleKey(UI_KEY_UP);
+	  }
+
+	  if ((key_down_pressed != 0U) &&
+	      (key_down_previous == 0U)) {
+	      (void)uiHandleKey(UI_KEY_DOWN);
+	  }
+
+	  if ((key_left_pressed != 0U) &&
+	      (key_left_previous == 0U)) {
+	      (void)uiHandleKey(UI_KEY_LEFT);
+	  }
+
+	  if ((key_right_pressed != 0U) &&
+	      (key_right_previous == 0U)) {
+	      (void)uiHandleKey(UI_KEY_RIGHT);
+	  }
+
+	  if ((key_ok_pressed != 0U) &&
+	      (key_ok_previous == 0U)) {
+	      (void)uiHandleKey(UI_KEY_ENTER);
+	  }
+
+	  key_up_previous = key_up_pressed;
+	  key_down_previous = key_down_pressed;
+	  key_left_previous = key_left_pressed;
+	  key_right_previous = key_right_pressed;
+	  key_ok_previous = key_ok_pressed;
 
 	  HAL_Delay(10);
   }
@@ -829,7 +824,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
