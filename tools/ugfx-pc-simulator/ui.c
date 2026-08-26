@@ -551,12 +551,45 @@ static void beginPage(const char *title)
         Gray);
 }
 
+static void drawAdminPinDigit(
+    int digit_index,
+    bool highlighted)
+{
+    int box_x;
+    char digit_text[2];
+
+    box_x = 33 + (digit_index * 46);
+
+    gdispFillArea(
+        box_x,
+        125,
+        36,
+        44,
+        highlighted ? Blue : Black);
+
+    gdispDrawBox(
+        box_x,
+        125,
+        36,
+        44,
+        highlighted ? White : Gray);
+
+    digit_text[0] = pin_digits[digit_index];
+    digit_text[1] = '\0';
+
+    gdispDrawString(
+        box_x + 12,
+        137,
+        digit_text,
+        font_menu,
+        White);
+}
+
+
 
 static void drawAdminLoginPage(void)
 {
     int i;
-    int box_x;
-    char digit_text[2];
 
     beginPage("ADMIN LOGIN");
 
@@ -568,33 +601,9 @@ static void drawAdminLoginPage(void)
         Yellow);
 
     for (i = 0; i < ADMIN_PIN_LENGTH; i++) {
-        box_x = 33 + (i * 46);
-
-        if (i == pin_cursor) {
-            gdispFillArea(
-                box_x,
-                125,
-                36,
-                44,
-                Blue);
-        }
-
-        gdispDrawBox(
-            box_x,
-            125,
-            36,
-            44,
-            i == pin_cursor ? White : Gray);
-
-        digit_text[0] = pin_digits[i];
-        digit_text[1] = '\0';
-
-        gdispDrawString(
-            box_x + 12,
-            137,
-            digit_text,
-            font_menu,
-            White);
+        drawAdminPinDigit(
+            i,
+            i == pin_cursor);
     }
 
     gdispDrawString(
@@ -602,16 +611,16 @@ static void drawAdminLoginPage(void)
         200,
         "UP/DOWN: CHANGE",
         font_status,
-        Gray);
+        White);
 
     gdispDrawString(
         35,
         220,
         "LEFT/RIGHT: MOVE",
         font_status,
-        Gray);
+        White);
 
-    drawFooter("ENTER: LOGIN   ESC: CANCEL");
+    drawFooter("ENTER: LOGIN   LEFT: MOVE/BACK");
 }
 
 
@@ -830,7 +839,7 @@ static void drawDisplayItem(
             (unsigned int)
                 ui_model->display_brightness_percent);
 
-        value_color = Green;
+        value_color = White;
         break;
 
     case 1:
@@ -1264,6 +1273,19 @@ static void drawPage(void)
 
 static void handleAdminLoginKey(UiKey key)
 {
+    int previous_cursor;
+    int i;
+
+    /*
+     * Clear a previously displayed PIN error.
+     */
+    gdispFillArea(
+        10,
+        250,
+        220,
+        30,
+        Black);
+
     switch (key) {
     case UI_KEY_UP:
         if (pin_digits[pin_cursor] == '9')
@@ -1271,7 +1293,9 @@ static void handleAdminLoginKey(UiKey key)
         else
             pin_digits[pin_cursor]++;
 
-        drawAdminLoginPage();
+        drawAdminPinDigit(
+            pin_cursor,
+            true);
         break;
 
     case UI_KEY_DOWN:
@@ -1280,21 +1304,43 @@ static void handleAdminLoginKey(UiKey key)
         else
             pin_digits[pin_cursor]--;
 
-        drawAdminLoginPage();
+        drawAdminPinDigit(
+            pin_cursor,
+            true);
         break;
 
     case UI_KEY_LEFT:
-        if (pin_cursor > 0)
+        if (pin_cursor > 0) {
+            previous_cursor = pin_cursor;
             pin_cursor--;
 
-        drawAdminLoginPage();
+            drawAdminPinDigit(
+                previous_cursor,
+                false);
+
+            drawAdminPinDigit(
+                pin_cursor,
+                true);
+        } else {
+            pending_page = PAGE_MENU;
+            current_page = PAGE_MENU;
+            drawMenu();
+        }
         break;
 
     case UI_KEY_RIGHT:
-        if (pin_cursor < ADMIN_PIN_LENGTH - 1)
+        if (pin_cursor < ADMIN_PIN_LENGTH - 1) {
+            previous_cursor = pin_cursor;
             pin_cursor++;
 
-        drawAdminLoginPage();
+            drawAdminPinDigit(
+                previous_cursor,
+                false);
+
+            drawAdminPinDigit(
+                pin_cursor,
+                true);
+        }
         break;
 
     case UI_KEY_ENTER:
@@ -1309,7 +1355,13 @@ static void handleAdminLoginKey(UiKey key)
                 ADMIN_PIN_LENGTH + 1);
 
             pin_cursor = 0;
-            drawAdminLoginPage();
+
+            for (i = 0; i < ADMIN_PIN_LENGTH; i++) {
+                drawAdminPinDigit(
+                    i,
+                    i == pin_cursor);
+            }
+
             uiShowError("INCORRECT PIN");
         }
         break;
