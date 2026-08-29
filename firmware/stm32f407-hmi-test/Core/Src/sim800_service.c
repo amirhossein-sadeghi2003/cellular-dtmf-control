@@ -17,13 +17,17 @@
 #define SIM800_AT_TIMEOUT_MS     2000U
 #define SIM800_AT_MAX_ATTEMPTS   3U
 #define SIM800_RETRY_INTERVAL_MS 5000U
+#define SIM800_CPIN_TIMEOUT_MS     2000U
+#define SIM800_CPIN_MAX_ATTEMPTS   3U
 
 typedef enum {
     SIM800_STATE_NOT_INITIALIZED = 0,
     SIM800_STATE_WAIT_BOOT,
     SIM800_STATE_WAIT_AT,
+    SIM800_STATE_WAIT_CPIN,
     SIM800_STATE_READY,
-    SIM800_STATE_ERROR
+    SIM800_STATE_ERROR,
+    SIM800_STATE_SIM_ERROR
 } Sim800State_t;
 
 static UART_HandleTypeDef *sim800_uart;
@@ -38,7 +42,7 @@ static char rx_buffer[SIM800_RX_BUFFER_SIZE];
 static Sim800State_t sim800_state;
 static uint32_t state_started_tick;
 static uint8_t at_attempt_count;
-
+static uint8_t cpin_attempt_count;
 
 static void setLastError(const char *message)
 {
@@ -121,6 +125,38 @@ static bool sendAtCommand(void)
 }
 
 
+
+static bool sendCpinCommand(void)
+{
+    static const uint8_t command[] = {
+        'A', 'T', '+', 'C', 'P', 'I', 'N', '?', '\r'
+    };
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command),
+            1000U) != HAL_OK) {
+
+        sim800_state = SIM800_STATE_ERROR;
+        sim800_model->modem_state = UI_MODEM_ERROR;
+        sim800_model->sim_ready = false;
+        sim800_model->at_error_count++;
+        setLastError("CPIN TX ERROR");
+
+        return false;
+    }
+
+    cpin_attempt_count++;
+    state_started_tick = HAL_GetTick();
+    sim800_state = SIM800_STATE_WAIT_CPIN;
+
+    return true;
+}
+
+
 static void markAtFailure(const char *message)
 {
 	sim800_state = SIM800_STATE_ERROR;
@@ -130,6 +166,15 @@ static void markAtFailure(const char *message)
 	    sim800_model->at_error_count++;
 
 	    setLastError(message);
+}
+
+static void markCpinFailure(const char *message)
+{
+    sim800_state = SIM800_STATE_SIM_ERROR;
+    state_started_tick = HAL_GetTick();
+
+    sim800_model->sim_ready = false;
+    setLastError(message);
 }
 
 
@@ -147,6 +192,7 @@ bool Sim800Service_Init(
     rx_index = 0U;
     rx_error_pending = 0U;
     at_attempt_count = 0U;
+    cpin_attempt_count = 0U;
 
     memset(rx_buffer, 0, sizeof(rx_buffer));
 
@@ -225,15 +271,19 @@ bool Sim800Service_Process(void)
         /*
          * A successful AT response confirms that
          * the modem and UART connection are alive.
+         * Continue by checking the SIM card.
          */
         if (strstr(snapshot, "OK") != NULL) {
-            sim800_state = SIM800_STATE_READY;
+            sim800_model->modem_state = UI_MODEM_READY;
+            sim800_model->sim_ready = false;
 
-            sim800_model->modem_state =
-                UI_MODEM_READY;
-
-            setLastError("NONE");
+            cpin_attempt_count = 0U;
+            setLastError("CHECKING SIM");
             clearRxBuffer();
+
+            if (!sendCpinCommand()) {
+                state_started_tick = HAL_GetTick();
+            }
 
             return true;
         }
@@ -281,6 +331,80 @@ bool Sim800Service_Process(void)
         }
         break;
 
+
+
+
+
+
+    case SIM800_STATE_WAIT_CPIN:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
+
+        /*
+         * The SIM card is available and does not
+         * require a PIN.
+         */
+        if (strstr(snapshot, "+CPIN: READY") != NULL) {
+            sim800_state = SIM800_STATE_READY;
+            sim800_model->sim_ready = true;
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        /*
+         * The modem responded, but the SIM card
+         * is not currently ready.
+         */
+        if ((strstr(snapshot, "+CPIN:") != NULL) ||
+            (strstr(snapshot, "ERROR") != NULL)) {
+
+            if (cpin_attempt_count <
+                SIM800_CPIN_MAX_ATTEMPTS) {
+
+                sim800_model->at_error_count++;
+                (void)sendCpinCommand();
+            } else {
+                markCpinFailure("SIM NOT READY");
+            }
+
+            return true;
+        }
+
+        /*
+         * No CPIN response was received in time.
+         */
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_CPIN_TIMEOUT_MS) {
+
+            if (cpin_attempt_count <
+                SIM800_CPIN_MAX_ATTEMPTS) {
+
+                sim800_model->at_error_count++;
+                (void)sendCpinCommand();
+            } else {
+                markCpinFailure("CPIN TIMEOUT");
+            }
+
+            return true;
+        }
+        break;
+
+
+
+
+
+
+
+
+
+
+
+
+
     case SIM800_STATE_ERROR:
         /*
          * Keep retrying periodically so a modem that
@@ -301,6 +425,25 @@ bool Sim800Service_Process(void)
                 return true;
             }
 
+            return true;
+        }
+        break;
+
+
+
+
+    case SIM800_STATE_SIM_ERROR:
+        /*
+         * Retry the SIM check periodically so a SIM
+         * that becomes ready later can be detected.
+         */
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_RETRY_INTERVAL_MS) {
+
+            cpin_attempt_count = 0U;
+            setLastError("RETRYING CPIN");
+
+            (void)sendCpinCommand();
             return true;
         }
         break;
