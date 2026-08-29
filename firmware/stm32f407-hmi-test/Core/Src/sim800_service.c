@@ -19,12 +19,16 @@
 #define SIM800_RETRY_INTERVAL_MS 5000U
 #define SIM800_CPIN_TIMEOUT_MS     2000U
 #define SIM800_CPIN_MAX_ATTEMPTS   3U
+#define SIM800_CREG_TIMEOUT_MS   5000U
+#define SIM800_CREG_RETRY_MS     5000U
 
 typedef enum {
     SIM800_STATE_NOT_INITIALIZED = 0,
     SIM800_STATE_WAIT_BOOT,
     SIM800_STATE_WAIT_AT,
     SIM800_STATE_WAIT_CPIN,
+    SIM800_STATE_WAIT_CREG,
+    SIM800_STATE_NETWORK_RETRY,
     SIM800_STATE_READY,
     SIM800_STATE_ERROR,
     SIM800_STATE_SIM_ERROR
@@ -157,6 +161,42 @@ static bool sendCpinCommand(void)
 }
 
 
+
+
+
+static bool sendCregCommand(void)
+{
+	static const uint8_t command[] = {
+	    'A', 'T', '+', 'C', 'R', 'E', 'G', '?', '\r', '\n'
+	};
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command),
+            1000U) != HAL_OK) {
+
+        sim800_state = SIM800_STATE_ERROR;
+        sim800_model->modem_state = UI_MODEM_ERROR;
+        sim800_model->network_state =
+            UI_NETWORK_NOT_REGISTERED;
+        sim800_model->at_error_count++;
+        setLastError("CREG TX ERROR");
+
+        return false;
+    }
+
+    state_started_tick = HAL_GetTick();
+    sim800_state = SIM800_STATE_WAIT_CREG;
+
+    return true;
+}
+
+
+
+
 static void markAtFailure(const char *message)
 {
 	sim800_state = SIM800_STATE_ERROR;
@@ -201,6 +241,9 @@ bool Sim800Service_Init(
 
     sim800_model->uart_ready = false;
     sim800_model->sim_ready = false;
+
+    sim800_model->network_state =
+        UI_NETWORK_NOT_REGISTERED;
 
     if (HAL_UART_Receive_IT(
             sim800_uart,
@@ -346,11 +389,15 @@ bool Sim800Service_Process(void)
          * require a PIN.
          */
         if (strstr(snapshot, "+CPIN: READY") != NULL) {
-            sim800_state = SIM800_STATE_READY;
             sim800_model->sim_ready = true;
+            sim800_model->network_state =
+                UI_NETWORK_SEARCHING;
 
-            setLastError("NONE");
+            setLastError("CHECKING NETWORK");
             clearRxBuffer();
+
+            sim800_state = SIM800_STATE_NETWORK_RETRY;
+            state_started_tick = HAL_GetTick();
 
             return true;
         }
@@ -395,7 +442,102 @@ bool Sim800Service_Process(void)
 
 
 
+    case SIM800_STATE_WAIT_CREG:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
 
+        if ((strstr(snapshot, "+CREG: 0,1") != NULL) ||
+            (strstr(snapshot, "+CREG: 1") != NULL)) {
+
+            sim800_model->network_state = UI_NETWORK_HOME;
+            sim800_state = SIM800_STATE_READY;
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((strstr(snapshot, "+CREG: 0,5") != NULL) ||
+            (strstr(snapshot, "+CREG: 5") != NULL)) {
+
+            sim800_model->network_state = UI_NETWORK_ROAMING;
+            sim800_state = SIM800_STATE_READY;
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((strstr(snapshot, "+CREG: 0,3") != NULL) ||
+            (strstr(snapshot, "+CREG: 3") != NULL)) {
+
+            sim800_model->network_state = UI_NETWORK_DENIED;
+            sim800_state = SIM800_STATE_NETWORK_RETRY;
+            state_started_tick = HAL_GetTick();
+            setLastError("NETWORK DENIED");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if (strstr(snapshot, "+CREG:") != NULL) {
+            if ((strstr(snapshot, "0,2") != NULL) ||
+                (strstr(snapshot, ": 2") != NULL)) {
+
+                sim800_model->network_state =
+                    UI_NETWORK_SEARCHING;
+                setLastError("NETWORK SEARCHING");
+            } else {
+                sim800_model->network_state =
+                    UI_NETWORK_NOT_REGISTERED;
+                setLastError("NOT REGISTERED");
+            }
+
+            sim800_state = SIM800_STATE_NETWORK_RETRY;
+            state_started_tick = HAL_GetTick();
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if (strstr(snapshot, "ERROR") != NULL) {
+            sim800_model->network_state =
+                UI_NETWORK_NOT_REGISTERED;
+            sim800_model->at_error_count++;
+            sim800_state = SIM800_STATE_NETWORK_RETRY;
+            state_started_tick = HAL_GetTick();
+            setLastError("CREG ERROR");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_CREG_TIMEOUT_MS) {
+
+            sim800_model->network_state =
+                UI_NETWORK_NOT_REGISTERED;
+            sim800_model->at_error_count++;
+            sim800_state = SIM800_STATE_NETWORK_RETRY;
+            state_started_tick = HAL_GetTick();
+            setLastError("CREG TIMEOUT");
+            clearRxBuffer();
+
+            return true;
+        }
+        break;
+
+    case SIM800_STATE_NETWORK_RETRY:
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_CREG_RETRY_MS) {
+
+            setLastError("RETRYING CREG");
+            (void)sendCregCommand();
+
+            return true;
+        }
+        break;
 
 
 

@@ -59,7 +59,7 @@ static UiRole current_role;
 static char pin_digits[ADMIN_PIN_LENGTH + 1];
 static int pin_cursor;
 static int pending_page;
-static const char admin_pin[] = "1234";
+static const char admin_pin[] = "1000";
 static int display_selected;
 static bool display_editing;
 
@@ -734,26 +734,101 @@ static void drawStatusPage(void)
 
 void uiRefreshModemStatus(void)
 {
-    if (!ui_model || current_page != 0)
+    char reset_count_text[16];
+    char at_error_count_text[16];
+
+    if (!ui_model)
         return;
 
-    /*
-     * Clear and redraw only the modem value.
-     * The rest of the Status page remains untouched.
-     */
-    gdispFillArea(
-        115,
-        106,
-        SCREEN_WIDTH - 115,
-        24,
-        Black);
+    if (current_page == 0) {
+        gdispFillArea(
+            115,
+            106,
+            SCREEN_WIDTH - 115,
+            54,
+            Black);
 
-    gdispDrawString(
-        115,
-        110,
-        modemStateText(ui_model->modem_state),
-        font_body,
-        modemStateColor(ui_model->modem_state));
+        gdispDrawString(
+            115,
+            110,
+            modemStateText(ui_model->modem_state),
+            font_body,
+            modemStateColor(ui_model->modem_state));
+
+        gdispDrawString(
+            115,
+            140,
+            networkStateText(ui_model->network_state),
+            font_body,
+            networkStateColor(ui_model->network_state));
+
+        return;
+    }
+
+    if (current_page == 5) {
+        snprintf(
+            reset_count_text,
+            sizeof(reset_count_text),
+            "%lu",
+            (unsigned long)ui_model->modem_reset_count);
+
+        snprintf(
+            at_error_count_text,
+            sizeof(at_error_count_text),
+            "%lu",
+            (unsigned long)ui_model->at_error_count);
+
+        gdispFillArea(
+            115,
+            101,
+            SCREEN_WIDTH - 115,
+            114,
+            Black);
+
+        gdispDrawString(
+            115,
+            105,
+            ui_model->uart_ready ? "READY" : "ERROR",
+            font_body,
+            ui_model->uart_ready ? Lime : Red);
+
+        gdispDrawString(
+            115,
+            135,
+            ui_model->sim_ready ? "READY" : "NOT READY",
+            font_body,
+            ui_model->sim_ready ? Lime : Red);
+
+        gdispDrawString(
+            115,
+            165,
+            reset_count_text,
+            font_body,
+            ui_model->modem_reset_count ? Yellow : Lime);
+
+        gdispDrawString(
+            115,
+            195,
+            at_error_count_text,
+            font_body,
+            ui_model->at_error_count ? Red : Lime);
+
+        gdispFillArea(
+            15,
+            236,
+            SCREEN_WIDTH - 15,
+            24,
+            Black);
+
+        gdispDrawString(
+            15,
+            240,
+            ui_model->last_error,
+            font_body,
+            strcmp(ui_model->last_error, "NONE") == 0
+                ? Lime
+                : Red);
+    }
 }
 
 
