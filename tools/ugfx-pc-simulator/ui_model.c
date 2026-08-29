@@ -35,7 +35,7 @@ void uiModelInit(UiModel *model)
     model->dtmf_detection_enabled = false;
 
     model->display_brightness_percent = 70;
-    model->screen_timeout_seconds = 30;
+    model->screen_timeout_seconds = 60;
     model->status_refresh_interval_seconds = 1;
 
     model->caller[0] = '-';

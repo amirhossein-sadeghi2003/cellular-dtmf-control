@@ -18,12 +18,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
 #include "gfx.h"
 #include "ui.h"
 #include "keypad.h"
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
+#include "display_power.h"
+#include "sim800_service.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -74,6 +76,10 @@
 #define UI_MENU_ITEM_HEIGHT 28U
 #define UI_MENU_ROW_STEP    30U
 #define UI_MENU_TEXT_X      28U
+
+
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -84,16 +90,21 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi2;
 
+UART_HandleTypeDef huart3;
+
 /* USER CODE BEGIN PV */
 
 static UiModel ui_model;
 
+static uint32_t last_activity_tick = 0U;
+static uint8_t display_awake = 1U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -136,6 +147,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI2_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   gfxInit();
   uiModelInit(&ui_model);
@@ -143,50 +155,80 @@ int main(void)
 uiInit(&ui_model);
 Keypad_Init();
 
+(void)Sim800Service_Init(&huart3, &ui_model);
+
+last_activity_tick = HAL_GetTick();
+display_awake = 1U;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  while (1)
-  {
+while (1)
+{
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	if (Sim800Service_Process()) {
+	    if (display_awake != 0U)
+	        uiRefreshModemStatus();
+	}
 
+    key_event = Keypad_Poll();
 
-	  key_event = Keypad_Poll();
+    if (key_event != KEYPAD_EVENT_NONE) {
+        last_activity_tick = HAL_GetTick();
 
-	  switch (key_event) {
-	  case KEYPAD_EVENT_UP:
-	      (void)uiHandleKey(UI_KEY_UP);
-	      break;
+        if (display_awake == 0U) {
+            /*
+             * The first key only wakes the display.
+             * It must not also change the current UI state.
+             */
+        	DisplayPower_Wake();
+            display_awake = 1U;
+            uiRefresh();
+        } else {
+            switch (key_event) {
+            case KEYPAD_EVENT_UP:
+                (void)uiHandleKey(UI_KEY_UP);
+                break;
 
-	  case KEYPAD_EVENT_DOWN:
-	      (void)uiHandleKey(UI_KEY_DOWN);
-	      break;
+            case KEYPAD_EVENT_DOWN:
+                (void)uiHandleKey(UI_KEY_DOWN);
+                break;
 
-	  case KEYPAD_EVENT_LEFT:
-	      (void)uiHandleKey(UI_KEY_LEFT);
-	      break;
+            case KEYPAD_EVENT_LEFT:
+                (void)uiHandleKey(UI_KEY_LEFT);
+                break;
 
-	  case KEYPAD_EVENT_RIGHT:
-	      (void)uiHandleKey(UI_KEY_RIGHT);
-	      break;
+            case KEYPAD_EVENT_RIGHT:
+                (void)uiHandleKey(UI_KEY_RIGHT);
+                break;
 
-	  case KEYPAD_EVENT_ENTER:
-	      (void)uiHandleKey(UI_KEY_ENTER);
-	      break;
+            case KEYPAD_EVENT_ENTER:
+                (void)uiHandleKey(UI_KEY_ENTER);
+                break;
 
-	  case KEYPAD_EVENT_NONE:
-	  default:
-	      break;
-	  }
+            case KEYPAD_EVENT_NONE:
+            default:
+                break;
+            }
+        }
+    }
 
-	  HAL_Delay(10);
-  	  }
+    if ((display_awake != 0U) &&
+        (ui_model.screen_timeout_seconds > 0U) &&
+        ((HAL_GetTick() - last_activity_tick) >=
+         (ui_model.screen_timeout_seconds * 1000U))) {
+
+    	DisplayPower_Sleep();
+        display_awake = 0U;
+    }
+
+    HAL_Delay(10);
+}
   /* USER CODE END 3 */
-
 }
 
 /**
@@ -253,7 +295,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -265,6 +307,39 @@ static void MX_SPI2_Init(void)
   /* USER CODE BEGIN SPI2_Init 2 */
 
   /* USER CODE END SPI2_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
 
 }
 
@@ -283,8 +358,8 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_RESET);

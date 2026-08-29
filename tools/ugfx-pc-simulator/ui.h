@@ -20,6 +20,7 @@ typedef enum {
 
 void uiInit(UiModel *model);
 void uiRefresh(void);
+void uiRefreshModemStatus(void);
 void uiShowError(const char *message);
 UiAction uiHandleKey(UiKey key);
 

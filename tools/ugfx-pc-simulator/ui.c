@@ -123,7 +123,7 @@ static color_t modemStateColor(UiModemState state)
 {
     switch (state) {
     case UI_MODEM_READY:
-        return Green;
+        return Lime;
 
     case UI_MODEM_INITIALIZING:
         return Yellow;
@@ -132,7 +132,7 @@ static color_t modemStateColor(UiModemState state)
         return Red;
 
     default:
-        return Gray;
+        return White;
     }
 }
 
@@ -163,7 +163,7 @@ static color_t networkStateColor(UiNetworkState state)
 {
     switch (state) {
     case UI_NETWORK_HOME:
-        return Green;
+        return Lime;
 
     case UI_NETWORK_ROAMING:
     case UI_NETWORK_SEARCHING:
@@ -173,7 +173,7 @@ static color_t networkStateColor(UiNetworkState state)
         return Red;
 
     default:
-        return Gray;
+        return White;
     }
 }
 
@@ -205,14 +205,14 @@ static color_t callStateColor(UiCallState state)
     switch (state) {
     case UI_CALL_IDLE:
     case UI_CALL_ACTIVE:
-        return Green;
+        return Lime;
 
     case UI_CALL_RINGING:
     case UI_CALL_ANSWERING:
         return Yellow;
 
     case UI_CALL_ENDED:
-        return Gray;
+        return White;
 
     default:
         return Red;
@@ -724,10 +724,40 @@ static void drawStatusPage(void)
         callStateText(ui_model->call_state),
         callStateColor(ui_model->call_state));
 
-    drawValue(200, "SIGNAL", signal_text, Green);
+    drawValue(200, "SIGNAL", signal_text, White);
 
     drawFooter("LEFT / ESC: BACK");
 }
+
+
+
+
+void uiRefreshModemStatus(void)
+{
+    if (!ui_model || current_page != 0)
+        return;
+
+    /*
+     * Clear and redraw only the modem value.
+     * The rest of the Status page remains untouched.
+     */
+    gdispFillArea(
+        115,
+        106,
+        SCREEN_WIDTH - 115,
+        24,
+        Black);
+
+    gdispDrawString(
+        115,
+        110,
+        modemStateText(ui_model->modem_state),
+        font_body,
+        modemStateColor(ui_model->modem_state));
+}
+
+
+
 
 static void drawCallPage(void)
 {
