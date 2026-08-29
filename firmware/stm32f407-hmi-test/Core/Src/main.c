@@ -185,7 +185,7 @@ while (1)
              * The first key only wakes the display.
              * It must not also change the current UI state.
              */
-        	DisplayPower_Wake();
+            DisplayPower_Wake();
             display_awake = 1U;
             uiRefresh();
         } else {
@@ -222,7 +222,7 @@ while (1)
         ((HAL_GetTick() - last_activity_tick) >=
          (ui_model.screen_timeout_seconds * 1000U))) {
 
-    	DisplayPower_Sleep();
+        DisplayPower_Sleep();
         display_awake = 0U;
     }
 
