@@ -21,6 +21,8 @@
 #define SIM800_CPIN_MAX_ATTEMPTS   3U
 #define SIM800_CREG_TIMEOUT_MS   5000U
 #define SIM800_CREG_RETRY_MS     5000U
+#define SIM800_CSQ_TIMEOUT_MS    2000U
+#define SIM800_HEALTH_CHECK_MS   10000U
 
 typedef enum {
     SIM800_STATE_NOT_INITIALIZED = 0,
@@ -28,6 +30,7 @@ typedef enum {
     SIM800_STATE_WAIT_AT,
     SIM800_STATE_WAIT_CPIN,
     SIM800_STATE_WAIT_CREG,
+    SIM800_STATE_WAIT_CSQ,
     SIM800_STATE_NETWORK_RETRY,
     SIM800_STATE_READY,
     SIM800_STATE_ERROR,
@@ -196,6 +199,85 @@ static bool sendCregCommand(void)
 
 
 
+static bool sendCsqCommand(void)
+{
+    static const uint8_t command[] = {
+        'A', 'T', '+', 'C', 'S', 'Q', '\r', '\n'
+    };
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command),
+            1000U) != HAL_OK) {
+
+        sim800_state = SIM800_STATE_ERROR;
+        sim800_model->modem_state = UI_MODEM_ERROR;
+        sim800_model->signal_rssi = 99U;
+        sim800_model->at_error_count++;
+        setLastError("CSQ TX ERROR");
+
+        return false;
+    }
+
+    state_started_tick = HAL_GetTick();
+    sim800_state = SIM800_STATE_WAIT_CSQ;
+
+    return true;
+}
+
+
+static bool parseCsqResponse(
+    const char *response,
+    uint8_t *rssi)
+{
+    const char *position;
+    unsigned int value;
+
+    if (!response || !rssi)
+        return false;
+
+    position = strstr(response, "+CSQ:");
+
+    if (!position)
+        return false;
+
+    position += 5;
+
+    while (*position == ' ')
+        position++;
+
+    if (*position < '0' || *position > '9')
+        return false;
+
+    value = 0U;
+
+    while (*position >= '0' &&
+           *position <= '9') {
+
+        value =
+            (value * 10U) +
+            (unsigned int)(*position - '0');
+
+        position++;
+    }
+
+    /*
+     * SIM800 CSQ RSSI is normally 0..31.
+     * 99 means unknown / not detectable.
+     */
+    if (value > 31U && value != 99U)
+        return false;
+
+    *rssi = (uint8_t)value;
+
+    return true;
+}
+
+
+
 
 static void markAtFailure(const char *message)
 {
@@ -267,8 +349,9 @@ bool Sim800Service_Init(
 
 bool Sim800Service_Process(void)
 {
-    char snapshot[SIM800_RX_BUFFER_SIZE];
-    bool ui_changed;
+	char snapshot[SIM800_RX_BUFFER_SIZE];
+	uint8_t parsed_rssi;
+	bool ui_changed;
 
     if (!sim800_uart || !sim800_model)
         return false;
@@ -450,10 +533,17 @@ bool Sim800Service_Process(void)
         if ((strstr(snapshot, "+CREG: 0,1") != NULL) ||
             (strstr(snapshot, "+CREG: 1") != NULL)) {
 
-            sim800_model->network_state = UI_NETWORK_HOME;
-            sim800_state = SIM800_STATE_READY;
-            setLastError("NONE");
+            sim800_model->network_state =
+                UI_NETWORK_HOME;
+
+            sim800_model->signal_rssi = 99U;
+
+            setLastError("CHECKING SIGNAL");
             clearRxBuffer();
+
+            if (!sendCsqCommand()) {
+                state_started_tick = HAL_GetTick();
+            }
 
             return true;
         }
@@ -461,14 +551,20 @@ bool Sim800Service_Process(void)
         if ((strstr(snapshot, "+CREG: 0,5") != NULL) ||
             (strstr(snapshot, "+CREG: 5") != NULL)) {
 
-            sim800_model->network_state = UI_NETWORK_ROAMING;
-            sim800_state = SIM800_STATE_READY;
-            setLastError("NONE");
+            sim800_model->network_state =
+                UI_NETWORK_ROAMING;
+
+            sim800_model->signal_rssi = 99U;
+
+            setLastError("CHECKING SIGNAL");
             clearRxBuffer();
+
+            if (!sendCsqCommand()) {
+                state_started_tick = HAL_GetTick();
+            }
 
             return true;
         }
-
         if ((strstr(snapshot, "+CREG: 0,3") != NULL) ||
             (strstr(snapshot, "+CREG: 3") != NULL)) {
 
@@ -516,16 +612,93 @@ bool Sim800Service_Process(void)
         if ((HAL_GetTick() - state_started_tick) >=
             SIM800_CREG_TIMEOUT_MS) {
 
+            sim800_model->modem_state =
+                UI_MODEM_ERROR;
+
+            sim800_model->sim_ready = false;
+
             sim800_model->network_state =
                 UI_NETWORK_NOT_REGISTERED;
+
+            sim800_model->call_state =
+                UI_CALL_IDLE;
+
             sim800_model->at_error_count++;
-            sim800_state = SIM800_STATE_NETWORK_RETRY;
+
+            sim800_state = SIM800_STATE_ERROR;
             state_started_tick = HAL_GetTick();
-            setLastError("CREG TIMEOUT");
+
+            setLastError("MODEM NO RESPONSE");
             clearRxBuffer();
 
             return true;
         }
+        break;
+
+
+
+    case SIM800_STATE_WAIT_CSQ:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
+
+        /*
+         * Expected response:
+         *
+         * +CSQ: <rssi>,<ber>
+         *
+         * RSSI:
+         * 0..31 = valid signal level
+         * 99    = unknown
+         */
+        if (parseCsqResponse(
+                snapshot,
+                &parsed_rssi)) {
+
+            sim800_model->signal_rssi =
+                parsed_rssi;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        /*
+         * CSQ is useful diagnostic information,
+         * but a CSQ error should not prevent the
+         * modem from entering READY state.
+         */
+        if (strstr(snapshot, "ERROR") != NULL) {
+
+            sim800_model->signal_rssi = 99U;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("CSQ ERROR");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_CSQ_TIMEOUT_MS) {
+
+            sim800_model->signal_rssi = 99U;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("CSQ TIMEOUT");
+            clearRxBuffer();
+
+            return true;
+        }
+
         break;
 
     case SIM800_STATE_NETWORK_RETRY:
@@ -591,13 +764,31 @@ bool Sim800Service_Process(void)
         break;
 
     case SIM800_STATE_READY:
-        /*
-         * The initial AT health check has completed.
-         * Network, call and DTMF processing will be
-         * added in later states.
-         */
-        break;
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
 
+        if (strstr(snapshot, "RING") != NULL) {
+            sim800_model->call_state =
+                UI_CALL_RINGING;
+
+            clearRxBuffer();
+            return true;
+        }
+
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_HEALTH_CHECK_MS) {
+
+            setLastError("CHECKING NETWORK");
+
+            if (!sendCregCommand()) {
+                state_started_tick = HAL_GetTick();
+            }
+
+            return true;
+        }
+
+        break;
     case SIM800_STATE_NOT_INITIALIZED:
     default:
         break;

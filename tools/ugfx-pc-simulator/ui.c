@@ -734,6 +734,7 @@ static void drawStatusPage(void)
 
 void uiRefreshModemStatus(void)
 {
+    char signal_text[16];
     char reset_count_text[16];
     char at_error_count_text[16];
 
@@ -741,11 +742,15 @@ void uiRefreshModemStatus(void)
         return;
 
     if (current_page == 0) {
+        formatSignal(
+            signal_text,
+            sizeof(signal_text));
+
         gdispFillArea(
             115,
             106,
             SCREEN_WIDTH - 115,
-            54,
+            114,
             Black);
 
         gdispDrawString(
@@ -761,6 +766,38 @@ void uiRefreshModemStatus(void)
             networkStateText(ui_model->network_state),
             font_body,
             networkStateColor(ui_model->network_state));
+
+        gdispDrawString(
+            115,
+            170,
+            callStateText(ui_model->call_state),
+            font_body,
+            callStateColor(ui_model->call_state));
+
+        gdispDrawString(
+            115,
+            200,
+            signal_text,
+            font_body,
+            White);
+
+        return;
+    }
+
+    if (current_page == 1) {
+        gdispFillArea(
+            115,
+            106,
+            SCREEN_WIDTH - 115,
+            24,
+            Black);
+
+        gdispDrawString(
+            115,
+            110,
+            callStateText(ui_model->call_state),
+            font_body,
+            callStateColor(ui_model->call_state));
 
         return;
     }
@@ -830,7 +867,6 @@ void uiRefreshModemStatus(void)
                 : Red);
     }
 }
-
 
 
 
