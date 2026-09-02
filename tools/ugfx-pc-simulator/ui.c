@@ -88,7 +88,9 @@ static UiPageAccess pageAccessForRole(UiRole role, int page_index){
         case 3:
             return role == UI_ROLE_ADMIN ? UI_ACCESS_EDITABLE : UI_ACCESS_READ_ONLY;
         case 4:
-            return role == UI_ROLE_ADMIN ? UI_ACCESS_EDITABLE : UI_ACCESS_LIMITED;
+            return role == UI_ROLE_ADMIN
+                ? UI_ACCESS_EDITABLE
+                : UI_ACCESS_READ_ONLY;
         case 5:
             return role == UI_ROLE_ADMIN ? UI_ACCESS_READ_ONLY : UI_ACCESS_DENIED;
         case 6:
@@ -741,6 +743,9 @@ void uiRefreshModemStatus(void)
     if (!ui_model)
         return;
 
+    drawStatusBar();
+
+
     if (current_page == 0) {
         formatSignal(
             signal_text,
@@ -976,11 +981,9 @@ static void drawDisplayItem(
         snprintf(
             value_text,
             sizeof(value_text),
-            "%u%%",
-            (unsigned int)
-                ui_model->display_brightness_percent);
+            "FIXED");
 
-        value_color = White;
+        value_color = Gray;
         break;
 
     case 1:
@@ -1007,14 +1010,9 @@ static void drawDisplayItem(
         snprintf(
             value_text,
             sizeof(value_text),
-            "%u s",
-            (unsigned int)
-                ui_model->status_refresh_interval_seconds);
+            "EVENT");
 
-        value_color =
-            access == UI_ACCESS_EDITABLE
-                ? Green
-                : White;
+        value_color = Gray;
         break;
 
     default:
@@ -1045,13 +1043,13 @@ static void drawDisplayMode(void)
     access = pageAccessForRole(current_role, 4);
 
     if (display_editing) {
-        mode_text = "EDIT MODE";
+        mode_text = "EDIT TIMEOUT";
         mode_color = Yellow;
     } else if (access == UI_ACCESS_EDITABLE) {
-        mode_text = "ALL SETTINGS UNLOCKED";
+        mode_text = "TIMEOUT UNLOCKED";
         mode_color = Green;
     } else {
-        mode_text = "BRIGHTNESS ONLY";
+        mode_text = "READ ONLY";
         mode_color = White;
     }
 
@@ -1101,54 +1099,27 @@ static void drawDisplayPage(void)
 }
 static bool displaySettingEditable(int item_index)
 {
-    if (item_index == 0)
-        return true;
+    if (item_index != 1)
+        return false;
 
-    if (current_role == UI_ROLE_ADMIN)
-        return true;
-
-    return false;
+    return current_role == UI_ROLE_ADMIN;
 }
-
 
 static void adjustDisplaySetting(int direction)
 {
-    switch (display_selected) {
-    case 0:
-        if (direction > 0 &&
-            ui_model->display_brightness_percent < 100) {
-            ui_model->display_brightness_percent += 10;
-        } else if (
-            direction < 0 &&
-            ui_model->display_brightness_percent > 10) {
-            ui_model->display_brightness_percent -= 10;
-        }
-        break;
+    if (display_selected != 1)
+        return;
 
-    case 1:
-        if (direction > 0 &&
-            ui_model->screen_timeout_seconds < 120) {
-            ui_model->screen_timeout_seconds += 15;
-        } else if (
-            direction < 0 &&
-            ui_model->screen_timeout_seconds > 15) {
-            ui_model->screen_timeout_seconds -= 15;
-        }
-        break;
+    if (direction > 0 &&
+        ui_model->screen_timeout_seconds < 120) {
 
-    case 2:
-        if (direction > 0 &&
-            ui_model->status_refresh_interval_seconds < 10) {
-            ui_model->status_refresh_interval_seconds++;
-        } else if (
-            direction < 0 &&
-            ui_model->status_refresh_interval_seconds > 1) {
-            ui_model->status_refresh_interval_seconds--;
-        }
-        break;
+        ui_model->screen_timeout_seconds += 15;
 
-    default:
-        break;
+    } else if (
+        direction < 0 &&
+        ui_model->screen_timeout_seconds > 0) {
+
+        ui_model->screen_timeout_seconds -= 15;
     }
 }
 
@@ -1181,6 +1152,7 @@ static void handleDisplayKey(UiKey key)
             display_editing = false;
             drawDisplayMode();
             break;
+
 
         default:
             break;
@@ -1225,7 +1197,14 @@ static void handleDisplayKey(UiKey key)
 
     case UI_KEY_ENTER:
         if (!displaySettingEditable(display_selected)) {
-            uiShowError("ADMIN ONLY");
+
+            if (display_selected == 1 &&
+                current_role != UI_ROLE_ADMIN) {
+                uiShowError("ADMIN ONLY");
+            } else {
+                uiShowError("FIXED SETTING");
+            }
+
             break;
         }
 
@@ -1267,8 +1246,9 @@ static void drawDiagnosticsPage(void)
         sizeof(at_error_count_text),
         "%lu",
         (unsigned long)ui_model->at_error_count);
-        no_active_error =
-    strcmp(ui_model->last_error, "NONE") == 0;
+
+    no_active_error =
+        strcmp(ui_model->last_error, "NONE") == 0;
 
     beginPage("DIAGNOSTICS");
 
@@ -1296,7 +1276,7 @@ static void drawDiagnosticsPage(void)
         195,
         "AT ERRORS",
         at_error_count_text,
-        ui_model->at_error_count ? Green : Red);
+        ui_model->at_error_count ? Red : Green);
 
     gdispDrawString(15, 220, "LAST ERROR", font_body, White);
 
@@ -1305,7 +1285,7 @@ static void drawDiagnosticsPage(void)
         240,
         ui_model->last_error,
         font_body,
-        ui_model->at_error_count ? Red : Green);
+        no_active_error ? Green : Red);
 
     drawFooter("LEFT / ESC: BACK");
 }
