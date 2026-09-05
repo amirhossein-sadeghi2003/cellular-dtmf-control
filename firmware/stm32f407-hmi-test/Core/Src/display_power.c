@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 extern SPI_HandleTypeDef hspi2;
+#define DISPLAY_SPI_TIMEOUT_MS 20U
 
 
 static void sendCommand(uint8_t command)
@@ -38,7 +39,7 @@ static void sendCommand(uint8_t command)
         &hspi2,
         &command,
         1U,
-        HAL_MAX_DELAY);
+        DISPLAY_SPI_TIMEOUT_MS);
 
     HAL_GPIO_WritePin(
         LCD_CS_GPIO_Port,

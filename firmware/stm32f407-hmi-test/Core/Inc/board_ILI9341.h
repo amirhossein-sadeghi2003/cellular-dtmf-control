@@ -12,6 +12,7 @@
 
 
 extern SPI_HandleTypeDef hspi2;
+#define LCD_SPI_TIMEOUT_MS 20U
 
 static GFXINLINE void init_board(GDisplay *g){
 	g->board = 0;
@@ -87,9 +88,9 @@ static GFXINLINE void write_index(
             &hspi2,
             &command,
             1U,
-            HAL_MAX_DELAY) != HAL_OK)
+            LCD_SPI_TIMEOUT_MS) != HAL_OK)
     {
-        Error_Handler();
+        return;
     }
 }
 
@@ -113,9 +114,9 @@ static GFXINLINE void write_data(
             &hspi2,
             &value,
             1U,
-            HAL_MAX_DELAY) != HAL_OK)
+            LCD_SPI_TIMEOUT_MS) != HAL_OK)
     {
-        Error_Handler();
+        return;
     }
 }
 

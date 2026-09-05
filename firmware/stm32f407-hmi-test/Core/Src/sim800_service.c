@@ -23,6 +23,8 @@
 #define SIM800_CREG_RETRY_MS     5000U
 #define SIM800_CSQ_TIMEOUT_MS    2000U
 #define SIM800_HEALTH_CHECK_MS   10000U
+#define SIM800_ANSWER_TIMEOUT_MS 3000U
+#define SIM800_DDET_TIMEOUT_MS   2000U
 
 typedef enum {
     SIM800_STATE_NOT_INITIALIZED = 0,
@@ -33,6 +35,8 @@ typedef enum {
     SIM800_STATE_WAIT_CSQ,
     SIM800_STATE_NETWORK_RETRY,
     SIM800_STATE_READY,
+	SIM800_STATE_WAIT_ANSWER,
+	SIM800_STATE_WAIT_DDET,
     SIM800_STATE_ERROR,
     SIM800_STATE_SIM_ERROR
 } Sim800State_t;
@@ -97,6 +101,57 @@ static void getRxSnapshot(
     destination[count] = '\0';
 
     __enable_irq();
+}
+
+
+static bool sendAnswerCommand(void)
+{
+    static const uint8_t command[] = {
+        'A', 'T', 'A', '\r'
+    };
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command),
+            1000U) != HAL_OK) {
+
+        setLastError("ATA TX ERROR");
+        return false;
+    }
+
+    sim800_model->call_state = UI_CALL_ANSWERING;
+    sim800_state = SIM800_STATE_WAIT_ANSWER;
+    state_started_tick = HAL_GetTick();
+
+    return true;
+}
+
+
+static bool sendDdetCommand(void)
+{
+    static const uint8_t command[] = {
+        'A', 'T', '+', 'D', 'D', 'E', 'T', '=', '1', '\r'
+    };
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command),
+            1000U) != HAL_OK) {
+
+        setLastError("DDET TX ERROR");
+        return false;
+    }
+
+    sim800_state = SIM800_STATE_WAIT_DDET;
+    state_started_tick = HAL_GetTick();
+
+    return true;
 }
 
 
@@ -712,7 +767,89 @@ bool Sim800Service_Process(void)
         }
         break;
 
+    case SIM800_STATE_WAIT_ANSWER:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
 
+        if (strstr(snapshot, "OK") != NULL) {
+
+            sim800_model->call_state =
+                UI_CALL_ACTIVE;
+
+            clearRxBuffer();
+
+            if (!sendDdetCommand()) {
+                sim800_model->dtmf_detection_enabled = false;
+                sim800_state = SIM800_STATE_READY;
+                state_started_tick = HAL_GetTick();
+            }
+
+            return true;
+        }
+
+        if ((strstr(snapshot, "ERROR") != NULL) ||
+            (strstr(snapshot, "NO CARRIER") != NULL) ||
+            ((HAL_GetTick() - state_started_tick) >=
+             SIM800_ANSWER_TIMEOUT_MS)) {
+
+            sim800_model->call_state =
+                UI_CALL_IDLE;
+
+            sim800_model->dtmf_detection_enabled =
+                false;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("ANSWER FAILED");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        break;
+
+
+    case SIM800_STATE_WAIT_DDET:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
+
+        if (strstr(snapshot, "OK") != NULL) {
+
+            sim800_model->dtmf_detection_enabled =
+                true;
+
+            sim800_model->call_state =
+                UI_CALL_ACTIVE;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((strstr(snapshot, "ERROR") != NULL) ||
+            ((HAL_GetTick() - state_started_tick) >=
+             SIM800_DDET_TIMEOUT_MS)) {
+
+            sim800_model->dtmf_detection_enabled =
+                false;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("DDET FAILED");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        break;
 
 
 
@@ -769,10 +906,15 @@ bool Sim800Service_Process(void)
             sizeof(snapshot));
 
         if (strstr(snapshot, "RING") != NULL) {
+
             sim800_model->call_state =
                 UI_CALL_RINGING;
 
-            clearRxBuffer();
+            if (!sendAnswerCommand()) {
+                sim800_model->call_state =
+                    UI_CALL_IDLE;
+            }
+
             return true;
         }
 

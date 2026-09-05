@@ -98,6 +98,8 @@ static UiModel ui_model;
 
 static uint32_t last_activity_tick = 0U;
 static uint8_t display_awake = 1U;
+
+static uint32_t last_status_refresh_tick = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -170,63 +172,63 @@ while (1)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	if (Sim800Service_Process()) {
-	    if (display_awake != 0U)
-	        uiRefreshModemStatus();
+
+	(void)Sim800Service_Process();
+
+	key_event = Keypad_Poll();
+
+	if (key_event != KEYPAD_EVENT_NONE) {
+	    last_activity_tick = HAL_GetTick();
+
+	    if (display_awake == 0U) {
+	        DisplayPower_Wake();
+	        display_awake = 1U;
+	        uiRefresh();
+	    } else {
+	        switch (key_event) {
+	        case KEYPAD_EVENT_UP:
+	            (void)uiHandleKey(UI_KEY_UP);
+	            break;
+
+	        case KEYPAD_EVENT_DOWN:
+	            (void)uiHandleKey(UI_KEY_DOWN);
+	            break;
+
+	        case KEYPAD_EVENT_LEFT:
+	            (void)uiHandleKey(UI_KEY_LEFT);
+	            break;
+
+	        case KEYPAD_EVENT_RIGHT:
+	            (void)uiHandleKey(UI_KEY_RIGHT);
+	            break;
+
+	        case KEYPAD_EVENT_ENTER:
+	            (void)uiHandleKey(UI_KEY_ENTER);
+	            break;
+
+	        case KEYPAD_EVENT_NONE:
+	        default:
+	            break;
+	        }
+	    }
+	}
+	else if ((display_awake != 0U) &&
+	         ((HAL_GetTick() - last_status_refresh_tick) >= 5000U)) {
+
+	    uiRefreshModemStatus();
+	    last_status_refresh_tick = HAL_GetTick();
 	}
 
-    key_event = Keypad_Poll();
+	if ((display_awake != 0U) &&
+	    (ui_model.screen_timeout_seconds > 0U) &&
+	    ((HAL_GetTick() - last_activity_tick) >=
+	     (ui_model.screen_timeout_seconds * 1000U))) {
 
-    if (key_event != KEYPAD_EVENT_NONE) {
-        last_activity_tick = HAL_GetTick();
+	    DisplayPower_Sleep();
+	    display_awake = 0U;
+	}
 
-        if (display_awake == 0U) {
-            /*
-             * The first key only wakes the display.
-             * It must not also change the current UI state.
-             */
-            DisplayPower_Wake();
-            display_awake = 1U;
-            uiRefresh();
-        } else {
-            switch (key_event) {
-            case KEYPAD_EVENT_UP:
-                (void)uiHandleKey(UI_KEY_UP);
-                break;
-
-            case KEYPAD_EVENT_DOWN:
-                (void)uiHandleKey(UI_KEY_DOWN);
-                break;
-
-            case KEYPAD_EVENT_LEFT:
-                (void)uiHandleKey(UI_KEY_LEFT);
-                break;
-
-            case KEYPAD_EVENT_RIGHT:
-                (void)uiHandleKey(UI_KEY_RIGHT);
-                break;
-
-            case KEYPAD_EVENT_ENTER:
-                (void)uiHandleKey(UI_KEY_ENTER);
-                break;
-
-            case KEYPAD_EVENT_NONE:
-            default:
-                break;
-            }
-        }
-    }
-
-    if ((display_awake != 0U) &&
-        (ui_model.screen_timeout_seconds > 0U) &&
-        ((HAL_GetTick() - last_activity_tick) >=
-         (ui_model.screen_timeout_seconds * 1000U))) {
-
-        DisplayPower_Sleep();
-        display_awake = 0U;
-    }
-
-    HAL_Delay(10);
+	HAL_Delay(10);
 }
   /* USER CODE END 3 */
 }
