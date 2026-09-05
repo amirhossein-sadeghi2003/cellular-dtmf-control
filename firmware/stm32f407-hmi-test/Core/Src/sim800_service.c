@@ -402,10 +402,47 @@ bool Sim800Service_Init(
     return true;
 }
 
+
+static bool parseDtmfEvent(
+    const char *response,
+    char *key)
+{
+    const char *position;
+    char value;
+
+    if (!response || !key)
+        return false;
+
+    position = strstr(response, "+DTMF:");
+
+    if (!position)
+        return false;
+
+    position += 6;
+
+    while (*position == ' ')
+        position++;
+
+    value = *position;
+
+    if ((value >= '0' && value <= '9') ||
+        value == '*' ||
+        value == '#' ||
+        (value >= 'A' && value <= 'D')) {
+
+        *key = value;
+        return true;
+    }
+
+    return false;
+}
+
+
 bool Sim800Service_Process(void)
 {
 	char snapshot[SIM800_RX_BUFFER_SIZE];
 	uint8_t parsed_rssi;
+	char dtmf_key;
 	bool ui_changed;
 
     if (!sim800_uart || !sim800_model)
@@ -905,6 +942,38 @@ bool Sim800Service_Process(void)
             snapshot,
             sizeof(snapshot));
 
+        if (strstr(snapshot, "NO CARRIER") != NULL) {
+
+            sim800_model->call_state =
+                UI_CALL_IDLE;
+
+            sim800_model->dtmf_detection_enabled =
+                false;
+
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+
+        if (sim800_model->call_state == UI_CALL_ACTIVE &&
+            parseDtmfEvent(snapshot, &dtmf_key)) {
+
+            if (uiModelAddDtmf(
+                    sim800_model,
+                    dtmf_key)) {
+
+                clearRxBuffer();
+                return true;
+            }
+
+            clearRxBuffer();
+        }
+
+
         if (strstr(snapshot, "RING") != NULL) {
 
             sim800_model->call_state =
@@ -918,8 +987,9 @@ bool Sim800Service_Process(void)
             return true;
         }
 
-        if ((HAL_GetTick() - state_started_tick) >=
-            SIM800_HEALTH_CHECK_MS) {
+        if ((sim800_model->call_state == UI_CALL_IDLE) &&
+            ((HAL_GetTick() - state_started_tick) >=
+             SIM800_HEALTH_CHECK_MS)) {
 
             setLastError("CHECKING NETWORK");
 

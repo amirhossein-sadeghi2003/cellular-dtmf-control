@@ -173,7 +173,9 @@ while (1)
 
     /* USER CODE BEGIN 3 */
 
-	(void)Sim800Service_Process();
+	bool sim800_changed;
+
+	sim800_changed = Sim800Service_Process();
 
 	key_event = Keypad_Poll();
 
@@ -227,7 +229,7 @@ while (1)
 	    DisplayPower_Sleep();
 	    display_awake = 0U;
 	}
-
+*/
 	HAL_Delay(10);
 }
   /* USER CODE END 3 */

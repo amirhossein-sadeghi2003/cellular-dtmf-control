@@ -22,6 +22,7 @@ void uiInit(UiModel *model);
 void uiRefresh(void);
 void uiRefreshModemStatus(void);
 void uiShowError(const char *message);
+void uiRefreshDtmfStatus(void);
 UiAction uiHandleKey(UiKey key);
 
 #endif

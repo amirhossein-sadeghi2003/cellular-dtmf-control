@@ -6,6 +6,7 @@
 
 #define MENU_COUNT 7
 #define PAGE_MENU (-1)
+#define PAGE_DTMF 2
 
 #define PAGE_ADMIN_LOGIN (-2)
 #define ADMIN_PIN_LENGTH 4
@@ -935,6 +936,103 @@ static void drawDtmfPage(void)
 
     drawFooter("LEFT / ESC: BACK");
 }
+
+
+
+
+
+void uiRefreshDtmfStatus(void)
+{
+    char last_key_text[2];
+    const char *buffer_text;
+    const char *status_text;
+
+    if (!ui_model || current_page != PAGE_DTMF)
+        return;
+
+    last_key_text[0] = ui_model->last_dtmf;
+    last_key_text[1] = '\0';
+
+    buffer_text = ui_model->dtmf_buffer[0]
+        ? ui_model->dtmf_buffer
+        : "-";
+
+    status_text = ui_model->last_dtmf == '-'
+        ? "WAITING"
+        : "RECEIVED";
+
+    /*
+     * Clear only the value area of each DTMF row.
+     * Labels and the rest of the page remain untouched.
+     */
+    gdispFillArea(
+        115,
+        106,
+        SCREEN_WIDTH - 115,
+        24,
+        Black);
+
+    gdispFillArea(
+        115,
+        136,
+        SCREEN_WIDTH - 115,
+        24,
+        Black);
+
+    gdispFillArea(
+        115,
+        166,
+        SCREEN_WIDTH - 115,
+        24,
+        Black);
+
+    gdispFillArea(
+        115,
+        196,
+        SCREEN_WIDTH - 115,
+        24,
+        Black);
+
+    gdispDrawString(
+        115,
+        110,
+        ui_model->dtmf_detection_enabled
+            ? "ENABLED"
+            : "DISABLED",
+        font_body,
+        ui_model->dtmf_detection_enabled
+            ? Green
+            : Gray);
+
+    gdispDrawString(
+        115,
+        140,
+        last_key_text,
+        font_body,
+        White);
+
+    gdispDrawString(
+        115,
+        170,
+        buffer_text,
+        font_body,
+        White);
+
+    gdispDrawString(
+        115,
+        200,
+        status_text,
+        font_body,
+        Green);
+}
+
+
+
+
+
+
+
+
 
 static void drawNetworkPage(void)
 {
