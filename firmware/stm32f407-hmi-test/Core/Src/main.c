@@ -215,12 +215,20 @@ while (1)
 	    }
 	}
 	else if ((display_awake != 0U) &&
+	         (sim800_changed != false)) {
+
+	    uiRefreshModemStatus();
+	    uiRefreshDtmfStatus();
+	}
+	else if ((display_awake != 0U) &&
+	         (ui_model.call_state == UI_CALL_IDLE) &&
 	         ((HAL_GetTick() - last_status_refresh_tick) >= 5000U)) {
 
 	    uiRefreshModemStatus();
 	    last_status_refresh_tick = HAL_GetTick();
 	}
 
+	/*
 	if ((display_awake != 0U) &&
 	    (ui_model.screen_timeout_seconds > 0U) &&
 	    ((HAL_GetTick() - last_activity_tick) >=
