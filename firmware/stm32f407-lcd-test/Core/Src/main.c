@@ -1234,24 +1234,24 @@ int main(void)
                     {
                         RX_ResetBuffer();
 
-                        /* PLAYBACK_CALL_PATCH_V1 */
+                        /* DTMF_PLAYBACK_PATCH_V1 */
 
                         LCD_Show(
                             "CALL ACTIVE",
-                            "SET REMOTE AUDIO"
+                            "ENABLE DTMF"
                         );
 
                         RX_ResetBuffer();
 
                         if (HAL_UART_Transmit(
                                 &huart3,
-                                (uint8_t *)"AT+DTAM=1\r",
-                                sizeof("AT+DTAM=1\r") - 1U,
+                                (uint8_t *)"AT+DDET=1,0,0\r",
+                                sizeof("AT+DDET=1,0,0\r") - 1U,
                                 1000U
                             ) != HAL_OK)
                         {
                             LCD_Show(
-                                "DTAM",
+                                "DDET",
                                 "TX ERROR"
                             );
 
@@ -1260,7 +1260,7 @@ int main(void)
                         else
                         {
                             commandTime = HAL_GetTick();
-                            state = 30U;
+                            state = 33U;
                         }
                     }
                     else
@@ -1294,6 +1294,44 @@ int main(void)
          * State 4:
          * Wait for +DTMF URC.
          */
+
+        /*
+         * State 33:
+         * Wait for DTMF detector enable confirmation.
+         */
+        else if (state == 33U)
+        {
+            if (strstr(snapshot, "OK") != NULL)
+            {
+                RX_ResetBuffer();
+
+                LCD_Show(
+                    "WAIT DTMF",
+                    "PRESS 1"
+                );
+
+                state = 4U;
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "DDET",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "DDET",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
 
         /*
          * State 30:
@@ -1434,22 +1472,49 @@ int main(void)
                         &dtmfKey
                     ) == 1)
                 {
-                    snprintf(
-                        lcdLine2,
-                        sizeof(lcdLine2),
-                        "KEY: %c",
-                        dtmfKey
-                    );
-
-                    LCD_Show(
-                        "DTMF RECEIVED",
-                        lcdLine2
-                    );
-
-                    /*
-                     * Clear old DTMF so another key can be detected.
-                     */
                     RX_ResetBuffer();
+
+                    if (dtmfKey == '1')
+                    {
+                        LCD_Show(
+                            "DTMF 1",
+                            "PLAY VOICE"
+                        );
+
+                        if (HAL_UART_Transmit(
+                                &huart3,
+                                (uint8_t *)"AT+DTAM=1\r",
+                                sizeof("AT+DTAM=1\r") - 1U,
+                                1000U
+                            ) != HAL_OK)
+                        {
+                            LCD_Show(
+                                "DTAM",
+                                "TX ERROR"
+                            );
+
+                            state = 99U;
+                        }
+                        else
+                        {
+                            commandTime = HAL_GetTick();
+                            state = 30U;
+                        }
+                    }
+                    else
+                    {
+                        snprintf(
+                            lcdLine2,
+                            sizeof(lcdLine2),
+                            "KEY: %c",
+                            dtmfKey
+                        );
+
+                        LCD_Show(
+                            "DTMF RECEIVED",
+                            lcdLine2
+                        );
+                    }
                 }
             }
 
