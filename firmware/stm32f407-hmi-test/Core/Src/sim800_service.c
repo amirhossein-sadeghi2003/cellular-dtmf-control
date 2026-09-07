@@ -28,6 +28,8 @@
 #define SIM800_DTAM_TIMEOUT_MS   2000U
 #define SIM800_CMEDPLAY_TIMEOUT_MS 3000U
 #define SIM800_MEDIA_END_TIMEOUT_MS 15000U
+#define SIM800_VOICE_SIZE_TIMEOUT_MS 3000U
+#define SIM800_VOICE_EXPECTED_SIZE 101642UL
 
 typedef enum {
     SIM800_STATE_NOT_INITIALIZED = 0,
@@ -36,6 +38,7 @@ typedef enum {
     SIM800_STATE_WAIT_CPIN,
     SIM800_STATE_WAIT_CREG,
     SIM800_STATE_WAIT_CSQ,
+    SIM800_STATE_WAIT_VOICE_SIZE,
     SIM800_STATE_NETWORK_RETRY,
     SIM800_STATE_READY,
 	SIM800_STATE_WAIT_ANSWER,
@@ -206,6 +209,65 @@ static bool sendMediaPlayCommand(void)
     sim800_state = SIM800_STATE_WAIT_CMEDPLAY;
     state_started_tick = HAL_GetTick();
 
+    return true;
+}
+
+
+static bool sendVoiceSizeCommand(void)
+{
+    static const uint8_t command[] =
+        "AT+FSFLSIZE=C:\\voice.wav\r";
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command) - 1U,
+            1000U) != HAL_OK) {
+
+        setLastError("VOICE CHECK TX");
+        return false;
+    }
+
+    sim800_state = SIM800_STATE_WAIT_VOICE_SIZE;
+    state_started_tick = HAL_GetTick();
+    setLastError("CHECKING VOICE");
+
+    return true;
+}
+
+
+static bool parseVoiceFileSize(
+    const char *response,
+    uint32_t *file_size)
+{
+    const char *position;
+    uint32_t value = 0U;
+
+    if (!response || !file_size)
+        return false;
+
+    position = strstr(response, "+FSFLSIZE:");
+
+    if (!position)
+        return false;
+
+    position += sizeof("+FSFLSIZE:") - 1U;
+
+    while (*position == ' ')
+        position++;
+
+    if (*position < '0' || *position > '9')
+        return false;
+
+    while (*position >= '0' && *position <= '9') {
+        value = value * 10U +
+            (uint32_t)(*position - '0');
+        position++;
+    }
+
+    *file_size = value;
     return true;
 }
 
@@ -805,11 +867,10 @@ bool Sim800Service_Process(void)
             sim800_model->signal_rssi =
                 parsed_rssi;
 
-            sim800_state = SIM800_STATE_READY;
-            state_started_tick = HAL_GetTick();
-
-            setLastError("NONE");
-            clearRxBuffer();
+            if (!sendVoiceSizeCommand()) {
+                sim800_state = SIM800_STATE_READY;
+                state_started_tick = HAL_GetTick();
+            }
 
             return true;
         }
@@ -843,6 +904,53 @@ bool Sim800Service_Process(void)
             setLastError("CSQ TIMEOUT");
             clearRxBuffer();
 
+            return true;
+        }
+
+        break;
+
+    case SIM800_STATE_WAIT_VOICE_SIZE:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
+
+        {
+            uint32_t voice_file_size;
+
+            if (parseVoiceFileSize(
+                    snapshot,
+                    &voice_file_size)) {
+
+                sim800_state = SIM800_STATE_READY;
+                state_started_tick = HAL_GetTick();
+
+                if (voice_file_size ==
+                    SIM800_VOICE_EXPECTED_SIZE) {
+                    setLastError("VOICE READY");
+                } else {
+                    setLastError("VOICE SIZE BAD");
+                }
+
+                clearRxBuffer();
+                return true;
+            }
+        }
+
+        if (strstr(snapshot, "ERROR") != NULL) {
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+            setLastError("VOICE MISSING");
+            clearRxBuffer();
+            return true;
+        }
+
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_VOICE_SIZE_TIMEOUT_MS) {
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+            setLastError("VOICE CHECK TIMEOUT");
+            clearRxBuffer();
             return true;
         }
 
