@@ -237,6 +237,9 @@ int main(void)
     char dtmfKey;
     char driveLetter;
 
+    char smsStorage[8];
+    int smsIndex;
+
     char memDrive;
     unsigned long freeBytes;
 
@@ -1059,13 +1062,31 @@ int main(void)
                         (unsigned long)SIM800_VOICE_DATA_LEN)
                     {
                         LCD_Show(
-                            "VOICE UPLOADED",
-                            "WAITING CALL"
+                            "SMS URC SETUP",
+                            "CNMI..."
                         );
 
                         RX_ResetBuffer();
 
-                        state = 1U;
+                        if (HAL_UART_Transmit(
+                                &huart3,
+                                (uint8_t *)"AT+CNMI=2,1,0,0,0\r",
+                                sizeof("AT+CNMI=2,1,0,0,0\r") - 1U,
+                                1000U
+                            ) != HAL_OK)
+                        {
+                            LCD_Show(
+                                "CNMI",
+                                "TX ERROR"
+                            );
+
+                            state = 99U;
+                        }
+                        else
+                        {
+                            commandTime = HAL_GetTick();
+                            state = 34U;
+                        }
                     }
                     else
                     {
@@ -1128,6 +1149,43 @@ int main(void)
                 state = 99U;
             }
         }
+        /*
+         * State 34:
+         * Enable SMS new-message URCs.
+         */
+        else if (state == 34U)
+        {
+            if (strstr(snapshot, "OK") != NULL)
+            {
+                RX_ResetBuffer();
+
+                LCD_Show(
+                    "SMS URC READY",
+                    "WAITING CALL"
+                );
+
+                state = 1U;
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "CNMI",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "CNMI",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
         /*
                 * State 1:
                 * Wait for RING.
@@ -1457,6 +1515,45 @@ int main(void)
 
         else if (state == 4U)
         {
+            /*
+             * SMS arrival during an active voice call.
+             * Example:
+             * +CMTI: "SM",3
+             */
+            position = strstr(
+                snapshot,
+                "+CMTI:"
+            );
+
+            if (position != NULL)
+            {
+                memset(smsStorage, 0, sizeof(smsStorage));
+                smsIndex = -1;
+
+                if (sscanf(
+                        position,
+                        "+CMTI: \"%7[^\"]\",%d",
+                        smsStorage,
+                        &smsIndex
+                    ) == 2)
+                {
+                    snprintf(
+                        lcdLine2,
+                        sizeof(lcdLine2),
+                        "%s IDX:%d",
+                        smsStorage,
+                        smsIndex
+                    );
+
+                    LCD_Show(
+                        "SMS RECEIVED",
+                        lcdLine2
+                    );
+
+                    RX_ResetBuffer();
+                }
+            }
+
             position = strstr(
                 snapshot,
                 "+DTMF:"
