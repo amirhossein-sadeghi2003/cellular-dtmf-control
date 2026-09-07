@@ -241,6 +241,9 @@ int main(void)
     int smsIndex;
     char smsCommand[32];
 
+    uint8_t smsPending = 0U;
+    int pendingSmsIndex = -1;
+
     char memDrive;
     unsigned long freeBytes;
 
@@ -342,6 +345,95 @@ int main(void)
             snapshot,
             sizeof(snapshot)
         );
+
+        /*
+         * Global SMS URC capture.
+         *
+         * The SMS event is captured independently of the
+         * current call/playback state. Reading is deferred
+         * until the AT command channel is safe to use.
+         */
+        if (smsPending == 0U)
+        {
+            char *smsPosition;
+
+            smsPosition = strstr(
+                snapshot,
+                "+CMTI:"
+            );
+
+            if (smsPosition != NULL)
+            {
+                int detectedIndex = -1;
+
+                memset(
+                    smsStorage,
+                    0,
+                    sizeof(smsStorage)
+                );
+
+                if (sscanf(
+                        smsPosition,
+                        "+CMTI: \"%7[^\"]\",%d",
+                        smsStorage,
+                        &detectedIndex
+                    ) == 2)
+                {
+                    pendingSmsIndex = detectedIndex;
+                    smsPending = 1U;
+
+                    if (state == 32U)
+                    {
+                        LCD_Show(
+                            "SMS QUEUED",
+                            "VOICE PLAYING"
+                        );
+                    }
+                }
+            }
+        }
+
+        /*
+         * If the call is active and no modem command is
+         * currently in progress, process a queued SMS.
+         */
+        if ((smsPending != 0U) &&
+            (state == 4U))
+        {
+            smsIndex = pendingSmsIndex;
+            smsPending = 0U;
+            pendingSmsIndex = -1;
+
+            RX_ResetBuffer();
+
+            LCD_Show(
+                "SMS RECEIVED",
+                "READING..."
+            );
+
+            if (HAL_UART_Transmit(
+                    &huart3,
+                    (uint8_t *)"AT+CMGF=1\r",
+                    sizeof("AT+CMGF=1\r") - 1U,
+                    1000U
+                ) != HAL_OK)
+            {
+                LCD_Show(
+                    "CMGF",
+                    "TX ERROR"
+                );
+
+                state = 99U;
+            }
+            else
+            {
+                commandTime = HAL_GetTick();
+                state = 35U;
+            }
+
+            HAL_Delay(10U);
+            continue;
+        }
 
         /*
          * State 0:
@@ -1673,65 +1765,6 @@ int main(void)
 
         else if (state == 4U)
         {
-            /*
-             * SMS arrival during an active voice call.
-             * Example:
-             * +CMTI: "SM",3
-             */
-            position = strstr(
-                snapshot,
-                "+CMTI:"
-            );
-
-            if (position != NULL)
-            {
-                memset(smsStorage, 0, sizeof(smsStorage));
-                smsIndex = -1;
-
-                if (sscanf(
-                        position,
-                        "+CMTI: \"%7[^\"]\",%d",
-                        smsStorage,
-                        &smsIndex
-                    ) == 2)
-                {
-                    snprintf(
-                        lcdLine2,
-                        sizeof(lcdLine2),
-                        "%s IDX:%d",
-                        smsStorage,
-                        smsIndex
-                    );
-
-                    LCD_Show(
-                        "SMS RECEIVED",
-                        lcdLine2
-                    );
-
-                    RX_ResetBuffer();
-
-                    if (HAL_UART_Transmit(
-                            &huart3,
-                            (uint8_t *)"AT+CMGF=1\r",
-                            sizeof("AT+CMGF=1\r") - 1U,
-                            1000U
-                        ) != HAL_OK)
-                    {
-                        LCD_Show(
-                            "CMGF",
-                            "TX ERROR"
-                        );
-
-                        state = 99U;
-                    }
-                    else
-                    {
-                        commandTime = HAL_GetTick();
-                        state = 35U;
-                    }
-                }
-            }
-
             position = strstr(
                 snapshot,
                 "+DTMF:"
