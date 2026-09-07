@@ -152,6 +152,10 @@ int main(void)
     int multiparty;
 
     char dtmfKey;
+    char driveLetter;
+
+    char memDrive;
+    unsigned long freeBytes;
 
     HAL_Init();
 
@@ -212,25 +216,25 @@ int main(void)
     HAL_Delay(1000U);
 
     /*
-     * Enable DTMF detection.
+     * Test CMEDPLAY support.
      */
     RX_ResetBuffer();
 
     LCD_Show(
-        "ENABLE DTMF",
-        "DDET..."
+        "CMEDPLAY TEST",
+        "SENDING..."
     );
 
     if (HAL_UART_Transmit(
             &huart3,
-            (uint8_t *)"AT+DDET=1,0,0\r",
-            14U,
+            (uint8_t *)"AT+CMEDPLAY=?\r",
+            sizeof("AT+CMEDPLAY=?\r") - 1U,
             1000U
         ) != HAL_OK)
     {
         LCD_Show(
-            "DDET TX ERROR",
-            "UART FAILED"
+            "CMEDPLAY",
+            "TX ERROR"
         );
 
         while (1)
@@ -258,22 +262,123 @@ int main(void)
          */
         if (state == 0U)
         {
-            if (strstr(snapshot, "OK") != NULL)
-            {
-                RX_ResetBuffer();
+        	if (strstr(snapshot, "OK") != NULL)
+        	{
+        	    RX_ResetBuffer();
 
+        	    LCD_Show(
+        	        "GET LOCAL DRIVE",
+        	        "FSDRIVE..."
+        	    );
+
+        	    if (HAL_UART_Transmit(
+        	            &huart3,
+        	            (uint8_t *)"AT+FSDRIVE=0\r",
+        	            sizeof("AT+FSDRIVE=0\r") - 1U,
+        	            1000U
+        	        ) != HAL_OK)
+        	    {
+        	        LCD_Show(
+        	            "FSDRIVE",
+        	            "TX ERROR"
+        	        );
+
+        	        state = 99U;
+        	    }
+        	    else
+        	    {
+        	        commandTime = HAL_GetTick();
+        	        state = 10U;
+        	    }
+        	}
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
                 LCD_Show(
-                    "DDET OK",
-                    "WAITING CALL"
+                    "CMEDPLAY",
+                    "UNSUPPORTED"
                 );
 
-                state = 1U;
+                state = 99U;
+            }
+
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "CMEDPLAY",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
+
+
+
+        else if (state == 10U)
+        {
+            position = strstr(
+                snapshot,
+                "+FSDRIVE:"
+            );
+
+            if (position != NULL)
+            {
+                driveLetter = '\0';
+
+                if (sscanf(
+                        position,
+                        "+FSDRIVE: %c",
+                        &driveLetter
+                    ) == 1)
+                {
+                    snprintf(
+                        lcdLine2,
+                        sizeof(lcdLine2),
+                        "DRIVE: %c",
+                        driveLetter
+                    );
+
+                    LCD_Show(
+                        "LOCAL STORAGE",
+                        lcdLine2
+                    );
+
+                    HAL_Delay(1000U);
+
+                    RX_ResetBuffer();
+
+                    LCD_Show(
+                        "CHECK MEMORY",
+                        "FSMEM..."
+                    );
+
+                    if (HAL_UART_Transmit(
+                            &huart3,
+                            (uint8_t *)"AT+FSMEM\r",
+                            sizeof("AT+FSMEM\r") - 1U,
+                            1000U
+                        ) != HAL_OK)
+                    {
+                        LCD_Show(
+                            "FSMEM",
+                            "TX ERROR"
+                        );
+
+                        state = 99U;
+                    }
+                    else
+                    {
+                        commandTime = HAL_GetTick();
+                        state = 11U;
+                    }
+                }
             }
             else if (strstr(snapshot, "ERROR") != NULL)
             {
                 LCD_Show(
-                    "DDET ERROR",
-                    "COMMAND FAILED"
+                    "FSDRIVE",
+                    "ERROR"
                 );
 
                 state = 99U;
@@ -281,18 +386,72 @@ int main(void)
             else if ((HAL_GetTick() - commandTime) >= 3000U)
             {
                 LCD_Show(
-                    "DDET TIMEOUT",
-                    "NO RESPONSE"
+                    "FSDRIVE",
+                    "TIMEOUT"
                 );
 
                 state = 99U;
             }
         }
 
+
+        else if (state == 11U)
+        {
+            position = strstr(
+                snapshot,
+                "+FSMEM:"
+            );
+
+            if (position != NULL)
+            {
+                memDrive = '\0';
+                freeBytes = 0UL;
+
+                if (sscanf(
+                        position,
+                        "+FSMEM: %c:%lubytes",
+                        &memDrive,
+                        &freeBytes
+                    ) == 2)
+                {
+                    snprintf(
+                        lcdLine2,
+                        sizeof(lcdLine2),
+                        "%lu bytes",
+                        freeBytes
+                    );
+
+                    LCD_Show(
+                        "FREE MEMORY",
+                        lcdLine2
+                    );
+
+                    state = 99U;
+                }
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "FSMEM",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "FSMEM",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
         /*
-         * State 1:
-         * Wait for RING.
-         */
+                * State 1:
+                * Wait for RING.
+                */
         else if (state == 1U)
         {
             if (strstr(snapshot, "RING") != NULL)
