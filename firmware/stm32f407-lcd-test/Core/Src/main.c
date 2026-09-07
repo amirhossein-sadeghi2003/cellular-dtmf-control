@@ -426,7 +426,34 @@ int main(void)
                         lcdLine2
                     );
 
-                    state = 99U;
+                    HAL_Delay(1000U);
+
+                    RX_ResetBuffer();
+
+                    LCD_Show(
+                        "LIST FILES",
+                        "FSLS..."
+                    );
+
+                    if (HAL_UART_Transmit(
+                            &huart3,
+                            (uint8_t *)"AT+FSLS=C:\\\r",
+                            sizeof("AT+FSLS=C:\\\r") - 1U,
+                            1000U
+                        ) != HAL_OK)
+                    {
+                        LCD_Show(
+                            "FSLS",
+                            "TX ERROR"
+                        );
+
+                        state = 99U;
+                    }
+                    else
+                    {
+                        commandTime = HAL_GetTick();
+                        state = 13U;
+                    }
                 }
             }
             else if (strstr(snapshot, "ERROR") != NULL)
@@ -442,6 +469,249 @@ int main(void)
             {
                 LCD_Show(
                     "FSMEM",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
+        else if (state == 13U)
+        {
+            if (strstr(snapshot, "test.wav") != NULL)
+            {
+                RX_ResetBuffer();
+
+                LCD_Show(
+                    "WRITE TEST",
+                    "WAIT PROMPT"
+                );
+
+                if (HAL_UART_Transmit(
+                        &huart3,
+                        (uint8_t *)"AT+FSWRITE=C:\\test.wav,0,5,10\r",
+                        sizeof("AT+FSWRITE=C:\\test.wav,0,5,10\r") - 1U,
+                        1000U
+                    ) != HAL_OK)
+                {
+                    LCD_Show(
+                        "FSWRITE",
+                        "TX ERROR"
+                    );
+
+                    state = 99U;
+                }
+                else
+                {
+                    commandTime = HAL_GetTick();
+                    state = 14U;
+                }
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "FSLS",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "FILE NOT FOUND",
+                    "test.wav"
+                );
+
+                state = 99U;
+            }
+        }
+
+        else if (state == 14U)
+        {
+            if (strchr(snapshot, '>') != NULL)
+            {
+                RX_ResetBuffer();
+
+                LCD_Show(
+                    "SEND DATA",
+                    "HELLO"
+                );
+
+                if (HAL_UART_Transmit(
+                        &huart3,
+                        (uint8_t *)"HELLO",
+                        5U,
+                        1000U
+                    ) != HAL_OK)
+                {
+                    LCD_Show(
+                        "DATA TX",
+                        "ERROR"
+                    );
+
+                    state = 99U;
+                }
+                else
+                {
+                    commandTime = HAL_GetTick();
+                    state = 15U;
+                }
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "FSWRITE",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "FSWRITE",
+                    "NO PROMPT"
+                );
+
+                state = 99U;
+            }
+        }
+
+        else if (state == 15U)
+        {
+            if (strstr(snapshot, "OK") != NULL)
+            {
+                LCD_Show(
+                    "WRITE OK",
+                    "5 BYTES SAVED"
+                );
+
+                HAL_Delay(1000U);
+
+                RX_ResetBuffer();
+
+                LCD_Show(
+                    "CHECK FILE SIZE",
+                    "FSFLSIZE..."
+                );
+
+                if (HAL_UART_Transmit(
+                        &huart3,
+                        (uint8_t *)"AT+FSFLSIZE=C:\\test.wav\r",
+                        sizeof("AT+FSFLSIZE=C:\\test.wav\r") - 1U,
+                        1000U
+                    ) != HAL_OK)
+                {
+                    LCD_Show(
+                        "FSFLSIZE",
+                        "TX ERROR"
+                    );
+
+                    state = 99U;
+                }
+                else
+                {
+                    commandTime = HAL_GetTick();
+                    state = 16U;
+                }
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "WRITE",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 12000U)
+            {
+                LCD_Show(
+                    "WRITE",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
+        else if (state == 16U)
+        {
+            position = strstr(
+                snapshot,
+                "+FSFLSIZE:"
+            );
+
+            if (position != NULL)
+            {
+                unsigned long fileSize = 0UL;
+
+                if (sscanf(
+                        position,
+                        "+FSFLSIZE: %lu",
+                        &fileSize
+                    ) == 1)
+                {
+                    snprintf(
+                        lcdLine2,
+                        sizeof(lcdLine2),
+                        "%lu bytes",
+                        fileSize
+                    );
+
+                    LCD_Show(
+                        "FILE SIZE",
+                        lcdLine2
+                    );
+
+                    state = 99U;
+                }
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "FSFLSIZE",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "FSFLSIZE",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
+        else if (state == 12U)
+        {
+            if (strstr(snapshot, "OK") != NULL)
+            {
+                LCD_Show(
+                    "FILE CREATED",
+                    "C:\\test.wav"
+                );
+
+                state = 99U;
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "FSCREATE",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "FSCREATE",
                     "TIMEOUT"
                 );
 
