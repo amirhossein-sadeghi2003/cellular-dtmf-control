@@ -2,7 +2,7 @@
 
 An embedded cellular control system based on an **STM32F407VGT6** microcontroller and a **SIM800C GSM module**.
 
-The system receives incoming cellular voice calls, answers them automatically, detects DTMF keypad tones, and forwards the detected keys to the STM32 through UART. The received key can then be displayed or mapped to application-specific outputs such as LEDs, relays, or control commands.
+The project receives incoming voice calls, answers them automatically, detects DTMF keypad tones, shows modem/call state on a graphical HMI, and can map DTMF commands to application actions. It also supports prerecorded voice playback into an active cellular call.
 
 ---
 
@@ -11,13 +11,13 @@ The system receives incoming cellular voice calls, answers them automatically, d
 ```text
 Incoming cellular call
         ↓
-SIM800C receives the call
-        ↓
-STM32 detects RING over UART
+SIM800C reports RING
         ↓
 STM32 sends ATA
         ↓
 Call becomes active
+        ↓
+STM32 enables DTMF detection
         ↓
 Caller presses a DTMF key
         ↓
@@ -25,58 +25,75 @@ SIM800C reports +DTMF
         ↓
 STM32 processes the key
         ↓
-LCD / relay / output control
+Graphical HMI / application action
 ```
 
-Example modem notification:
+The currently validated demonstration command is:
 
 ```text
-+DTMF: 5
+DTMF 1
+   ↓
+AT+DTAM=1
+   ↓
+AT+CMEDPLAY=1,C:\voice.wav,0,100
+   ↓
+SIM800C plays the prerecorded Persian prompt
+   ↓
+Remote caller hears the audio
 ```
-
-The STM32 can display the received key or map it to a device command.
 
 ---
 
 ## Current Project Status
 
-The cellular call and DTMF path has been validated successfully on real hardware and the validated implementation is now used as the production firmware on `main`.
+The cellular call, DTMF, filesystem, HMI, and prerecorded-audio path have all been validated incrementally on real hardware.
 
-Verified functionality:
+The primary integrated firmware is now:
 
-- HD44780-compatible character LCD in 4-bit mode
+```text
+firmware/stm32f407-hmi-test
+```
+
+The character-LCD project is retained as a known-good diagnostic environment:
+
+```text
+firmware/stm32f407-lcd-test
+```
+
+Verified functionality includes:
+
 - STM32F407 USART3 communication with SIM800C
-- SIM-card detection
-- GSM network registration
-- Signal-strength query
+- SIM-card readiness using `AT+CPIN?`
+- GSM registration using `AT+CREG?`
+- Signal-strength monitoring using `AT+CSQ`
 - Incoming-call detection using `RING`
 - Automatic call answering using `ATA`
-- Active-call verification using `AT+CLCC`
-- Received-DTMF reporting using `AT+DDET`
-- DTMF key display on the LCD
+- DTMF reporting using `AT+DDET`
 - Multiple consecutive incoming calls
 - Interrupt-driven UART reception
-- Asynchronous modem-response capture
+- Graphical ILI9341 HMI
+- Live modem, network, signal, and call-state display
+- SIM800C local-filesystem access
+- File creation, deletion, writing, listing, and size verification
+- WAV transfer from STM32 to SIM800C
+- Media playback using `AT+CMEDPLAY`
+- Audio playback into an active cellular call
+- DTMF-triggered prerecorded Persian voice playback
+- Repeated DTMF `1` playback during real calls
+- Startup verification of `C:\voice.wav`
+- Automatic voice-file recovery logic in the HMI firmware
 
-The validated firmware successfully handled consecutive incoming calls and displayed DTMF keys during each active call.
-
-The production firmware on `main` now uses this validated call and DTMF sequence.
-
-The following DTMF symbols can be handled by the parser:
-
-```text
-0 1 2 3 4 5 6 7 8 9
-* #
-A B C D
-```
-
-Standard mobile-phone keypads normally provide:
+The current embedded voice prompt is stored in STM32 Flash as WAV data with this format:
 
 ```text
-0-9
-*
-#
+PCM
+Mono
+8000 Hz
+16-bit
+101642 bytes
 ```
+
+If `C:\voice.wav` already exists with the expected size, the HMI proceeds directly to the normal ready state. If the file is missing or has the wrong size, the firmware contains a recovery path that can delete, recreate, upload the WAV in chunks, and verify the final file size.
 
 ---
 
@@ -98,7 +115,7 @@ Device-specific identifiers in the public image have been redacted.
 
 ![DTMF call test](docs/images/hardware/dtmf-call-test.png)
 
-The character LCD is used to display call state and received DTMF keys during testing.
+The character LCD was used extensively during low-level modem and filesystem testing. The integrated firmware now uses the graphical HMI.
 
 ---
 
@@ -109,12 +126,37 @@ Current hardware includes:
 - STM32F407VGT6 microcontroller
 - Dideban v2.0 development board
 - SIM800C GSM/GPRS module on an HW-537 carrier board
-- HD44780-compatible character LCD
+- ILI9341 graphical display for the main HMI
+- HD44780-compatible character LCD for diagnostic firmware
 - GSM antenna
 - ST-LINK V2 programmer
-- External regulated power supply
+- External power source
 - Active SIM card with GSM voice-call support
 - Separate phone for incoming-call and DTMF testing
+
+---
+
+## SIM800C Power-Supply Debugging
+
+Power integrity was one of the main hardware issues encountered during development.
+
+With the original carrier-board power path, the SIM800C VBAT rail showed severe voltage sag during startup and GSM activity. Measurements showed the rail dropping below approximately 3 V in problematic conditions.
+
+To isolate the carrier-board supply path, the module **VCC path was disconnected** and power was applied **directly to the SIM800C VBAT rail**.
+
+For additional voltage drop from the available 5 V source, a **1N4002 series diode** was inserted. With one diode installed, the measured VBAT voltage was approximately:
+
+```text
+4.48 V
+```
+
+In this configuration the modem was able to start, register on the network, receive calls, detect DTMF, and play stored audio.
+
+A second experiment used **two 1N4002 diodes in series**. This reduced the idle voltage to roughly 4.0 V, but the modem did not operate reliably and could shut down or fail to register. The likely cause was additional voltage drop under the SIM800C high-current GSM bursts.
+
+The prototype was therefore returned to the **single-diode configuration**, where the measured operating voltage was about **4.48 V** and normal operation resumed.
+
+> **Important:** 4.48 V is documented here as an experimental prototype measurement, not as the recommended final SIM800C supply voltage. It is above the SIM800C specified maximum VBAT voltage. A final hardware revision should use a properly regulated supply near 4.0–4.1 V with sufficient burst-current capability, short low-resistance power paths, and adequate low-ESR bulk/local decoupling.
 
 ---
 
@@ -148,212 +190,202 @@ NO CARRIER
 +DTMF: 5
 ```
 
-UART is used for AT commands, modem responses, and unsolicited result codes. Raw voice audio does not pass through USART3.
+UART carries AT commands, responses, unsolicited result codes, and file-upload data. During normal media playback, the SIM800C media subsystem generates the audio for the cellular call rather than continuously streaming raw voice audio through USART3.
 
 ---
 
 ## UART Receive Architecture
 
-Cellular modem messages arrive asynchronously, so the production firmware uses interrupt-driven UART reception and a circular receive buffer.
-
-The architecture is:
+Cellular modem messages arrive asynchronously, so the integrated firmware uses interrupt-driven UART reception and a receive buffer.
 
 ```text
 USART3 RX interrupt
         ↓
-Single received byte
+Received byte
         ↓
-UART circular buffer
+RX buffer
         ↓
-Main-loop parser
+Main-loop state machine
         ↓
-Complete modem line
+AT response / URC parsing
         ↓
-Command / URC processing
+HMI and application state update
 ```
 
-This allows unsolicited modem messages such as:
-
-```text
-RING
-NO CARRIER
-+DTMF: 3
-```
-
-to be captured while the application continues running.
-
-During debugging, simplified diagnostic firmware was also used to isolate UART and modem behavior independently from the production state machine.
+This allows unsolicited modem messages such as `RING`, `NO CARRIER`, and `+DTMF` to be captured while the application continues running.
 
 ---
 
 ## Validated Call Flow
 
-The simplified sequence that was successfully validated on real hardware is:
+The real-hardware call path is:
 
 ```text
-Disable command echo
+AT communication
         ↓
-Enable DTMF reporting
+CPIN check
+        ↓
+CREG network registration
+        ↓
+CSQ signal check
         ↓
 Wait for RING
         ↓
 Send ATA
         ↓
-Wait for call establishment
-        ↓
-Query AT+CLCC
-        ↓
-Confirm active call
+Enable DTMF detection
         ↓
 Receive +DTMF notifications
 ```
 
-For an incoming active voice call, `AT+CLCC` was observed with:
-
-```text
-direction = 1
-status    = 0
-```
-
-After the call becomes active, DTMF notifications are received asynchronously over UART.
-
----
-
-## DTMF Control
-
-SIM800C DTMF reporting is enabled using:
-
-```text
-AT+DDET=1,0,0
-```
-
-During an active call, pressing a keypad digit can produce a UART notification such as:
+During an active call, pressing a keypad digit can produce:
 
 ```text
 +DTMF: 1
 ```
 
-or:
-
-```text
-+DTMF: #
-```
-
-The firmware validates the received symbol and can map it to an application action.
-
-Example future mappings:
-
-```text
-1      → Output 1 ON
-2      → Output 1 OFF
-11#    → Command sequence
-21#    → Another application command
-```
-
-Multi-digit command sequences can therefore be implemented in the STM32 application layer using standard DTMF symbols.
+The firmware validates the received symbol and can map it to a device action.
 
 ---
 
-## LCD Connection
+## Recorded Voice Playback
 
-The LCD operates in 4-bit mode.
+The project can play a prerecorded Persian prompt to the remote caller without requiring a microphone.
 
-| LCD signal | STM32F407 pin |
-| --- | --- |
-| RS | PE7 |
-| RW | PE8 |
-| EN | PE9 |
-| D4 | PE10 |
-| D5 | PE11 |
-| D6 | PE12 |
-| D7 | PE13 |
-
-LCD-related firmware files include:
+The workflow is:
 
 ```text
-Core/Inc/lcd.h
-Core/Src/lcd.c
-Core/Src/main.c
+Persian voice prompt
+        ↓
+Converted to WAV PCM
+8000 Hz / mono / 16-bit
+        ↓
+Embedded in STM32 Flash
+        ↓
+Uploaded to SIM800C local filesystem when required
+        ↓
+Stored as C:\voice.wav
+        ↓
+Incoming call becomes active
+        ↓
+Caller presses DTMF 1
+        ↓
+AT+DTAM=1
+        ↓
+AT+CMEDPLAY=1,C:\voice.wav,0,100
+        ↓
+Remote caller hears the prompt
 ```
 
-Example displays used during development include:
+The current high-quality Persian test prompt was generated using TTS and converted to SIM800-compatible WAV format with FFmpeg.
+
+The file is uploaded in chunks of up to 10240 bytes. The first write starts from the beginning of the file, and subsequent writes append data until the full WAV has been transferred. The firmware then verifies the final file size using `AT+FSFLSIZE`.
+
+---
+
+## SIM800C Filesystem
+
+Filesystem features validated on real hardware include:
 
 ```text
-WAITING FOR CALL
+AT+FSDRIVE=0
+AT+FSMEM
+AT+FSLS
+AT+FSCREATE
+AT+FSDEL
+AT+FSWRITE
+AT+FSFLSIZE
 ```
 
-```text
-CALL CONNECTED
-PRESS A KEY
-```
+The local storage was successfully used for `voice.wav` and for small test files during development.
 
-```text
-DTMF RECEIVED
-KEY: 5
-```
+The integrated HMI firmware checks the expected voice-file size during startup. This removes the normal runtime dependency on the character-LCD diagnostic firmware.
 
 ---
 
 ## Modem Commands Used
 
-The project currently uses or has tested commands including:
+The project currently uses or has validated commands including:
 
 ```text
 AT
 ATE0
 AT+CPIN?
-AT+CSQ
 AT+CREG?
-AT+DDET=1,0,0
+AT+CSQ
 ATA
 AT+CLCC
+AT+DDET=1
+AT+DTAM=1
+AT+FSDRIVE=0
+AT+FSMEM
+AT+FSLS
+AT+FSCREATE
+AT+FSDEL
+AT+FSWRITE
+AT+FSFLSIZE
+AT+CMEDPLAY=?
+AT+CMEDPLAY=1,C:\voice.wav,0,100
 ```
 
-These commands are used for:
-
-- Basic modem communication
-- SIM-card readiness
-- GSM signal strength
-- Network registration
-- DTMF reporting
-- Answering incoming calls
-- Monitoring call state
+These commands cover modem communication, SIM readiness, network registration, signal monitoring, incoming calls, DTMF reporting, filesystem management, file upload, size verification, audio routing, and prerecorded media playback.
 
 ---
 
-## Two-Way Audio
+## Graphical HMI
 
-UART communication and voice communication use separate electrical paths.
+The integrated firmware uses an ILI9341-based graphical interface.
 
-### Local board to remote caller
+The HMI displays operational information such as:
 
-```text
-Local voice
-    ↓
-Microphone interface
-    ↓
-MICP / MICN
-    ↓
-SIM800C
-    ↓
-Cellular network
-```
+- Modem state
+- SIM readiness
+- Network registration state
+- Signal level
+- Call state
+- DTMF activity
+- Diagnostic/error information
 
-### Remote caller to local board
+The graphical firmware is maintained in:
 
 ```text
-Cellular network
-    ↓
-SIM800C
-    ↓
-SPKP / SPKN
-    ↓
-Audio amplifier / earpiece / speaker
+firmware/stm32f407-hmi-test
 ```
 
-The SIM800C audio pins are differential and require an appropriate analog interface.
+The desktop UI development environment is maintained in:
 
-Two-way audio hardware is outside the current DTMF-control validation path and remains a separate integration task.
+```text
+tools/ugfx-pc-simulator
+```
+
+---
+
+## Character-LCD Diagnostic Firmware
+
+The character-LCD project remains useful for isolated hardware debugging:
+
+```text
+firmware/stm32f407-lcd-test
+```
+
+It was used to validate the modem step by step before integrating the same behavior into the graphical HMI.
+
+Major stages validated with this firmware include:
+
+```text
+AT communication
+SIM readiness
+network registration
+signal strength
+incoming calls
+DTMF detection
+filesystem access
+file creation
+chunked file upload
+file-size verification
+CMEDPLAY support
+prerecorded audio during a real call
+```
 
 ---
 
@@ -370,33 +402,16 @@ cellular-dtmf-control/
 │   │   └── pdf/
 │   └── images/
 │       └── hardware/
-│           ├── hardware-overview.png
-│           ├── dtmf-call-test.png
-│           └── sim800c-hw537-module-redacted.jpg
 ├── firmware/
-│   └── stm32f407-lcd-test/
+│   ├── stm32f407-lcd-test/
+│   │   └── diagnostic / hardware-isolation firmware
+│   └── stm32f407-hmi-test/
+│       └── integrated graphical firmware
+├── tools/
+│   └── ugfx-pc-simulator/
+│       └── desktop HMI development environment
 └── README.md
 ```
-
----
-
-## Technical Reports
-
-The repository contains technical studies and hardware documentation produced during development.
-
-Reports are organized under:
-
-```text
-docs/
-├── en/
-│   ├── docx/
-│   └── pdf/
-└── fa/
-    ├── docx/
-    └── pdf/
-```
-
-Persian (`fa`) and English (`en`) documentation are kept separately where available.
 
 ---
 
@@ -407,6 +422,7 @@ Persian (`fa`) and English (`en`) documentation are kept separately where availa
 - STM32CubeF4 firmware package
 - STM32CubeProgrammer
 - ST-LINK V2
+- FFmpeg
 - Git
 - GitHub
 
@@ -414,78 +430,67 @@ Persian (`fa`) and English (`en`) documentation are kept separately where availa
 
 ## Building the Firmware
 
-1. Clone the repository:
+Clone the repository:
 
 ```bash
 git clone https://github.com/amirhossein-sadeghi2003/cellular-dtmf-control.git
 cd cellular-dtmf-control
 ```
 
-2. Open the STM32CubeMX project:
+For the integrated graphical firmware, open:
 
 ```text
-firmware/stm32f407-lcd-test/stm32f407-lcd-test.ioc
+firmware/stm32f407-hmi-test
 ```
 
-3. Generate or update the STM32 project if required.
+in STM32CubeIDE and build the required configuration.
 
-4. Open the generated project in STM32CubeIDE.
+For isolated modem/filesystem diagnostics, use:
 
-5. Build the firmware.
+```text
+firmware/stm32f407-lcd-test
+```
 
-6. Connect the STM32F407 board through SWD using ST-LINK.
+Connect the STM32F407 board through SWD using ST-LINK, build the selected project, and flash it from STM32CubeIDE.
 
-7. Flash the firmware and run the target.
+The graphical firmware embeds the current voice WAV in Flash through:
+
+```text
+Core/Inc/sim800_voice_data.h
+```
+
+so its firmware image is intentionally larger than the earlier DTMF-only builds.
 
 ---
 
 ## Validation Notes
 
-A simplified diagnostic firmware was used during hardware debugging to isolate each stage independently.
+Development was performed incrementally on real hardware.
 
 The following stages were individually verified:
 
 ```text
 AT communication
-SIM readiness
-signal strength
-network registration
+CPIN readiness
+CREG network registration
+CSQ signal strength
 incoming RING
-ATA call answering
-active-call CLCC
+automatic ATA
+active voice call
 DTMF reception
 repeated incoming calls
+SIM800 filesystem access
+file creation
+chunked file writing
+file-size verification
+WAV playback
+remote caller hearing the playback
+DTMF-triggered voice playback
+graphical HMI integration
+startup voice-file size check
 ```
 
-The known-good diagnostic implementation is preserved in the Git branch:
-
-```text
-debug/hw537-known-good-dtmf
-```
-
-This branch preserves the original known-good diagnostic checkpoint used during hardware debugging.
-
----
-
-## Production Firmware Status
-
-The core cellular call and DTMF path has been validated successfully on real hardware.
-
-The production firmware on `main` now uses the hardware-validated call flow for:
-
-- Incoming-call detection
-- Automatic call answering
-- Active-call confirmation
-- DTMF reception
-- Consecutive incoming calls
-- Interrupt-driven UART reception
-
-Further robustness improvements may include:
-
-- Improving AT-command response timing
-- Reducing unnecessary command polling
-- Improving modem-reset and UART error recovery
-- Long-duration stability testing
+The HMI has also been tested with repeated DTMF `1` commands and successfully plays the stored Persian voice prompt during an active call.
 
 ---
 
@@ -493,24 +498,40 @@ Further robustness improvements may include:
 
 Planned development includes:
 
-- Mapping DTMF keys to physical outputs
+- Deliberately deleting or corrupting `voice.wav` and validating the full automatic recovery path end to end
+- Mapping DTMF keys to real physical outputs
 - Relay / LED control
+- Full IVR-style command menu
+- Multiple prerecorded voice prompts
+- Device-status announcement
 - Configurable multi-digit DTMF commands
-- Call authorization
+- Caller authorization
 - Caller-number validation
 - Persistent configuration
-- Optional two-way audio hardware
-- Graphical display / menu integration
+- Improved modem-reset and UART-error recovery
+- Dedicated regulated SIM800C power stage
+- Long-duration stability testing
+- Optional microphone and speaker hardware
+
+A possible future IVR mapping is:
+
+```text
+1 → output ON
+2 → output OFF
+3 → report device status
+0 → repeat menu
+# → finish / hang up
+```
 
 ---
 
 ## Safety Note
 
-Cellular modules can draw significant current pulses during GSM transmission.
+SIM800-class cellular modules can draw large short current pulses during GSM transmission.
 
-Use a properly regulated supply, adequate local decoupling, short power paths, and a common ground between the STM32 and modem interface.
+Use a properly regulated supply, adequate local decoupling, short low-resistance power paths, and a common ground between the STM32 and modem interface.
 
-Do not connect power to undocumented module pins without verifying the exact carrier-board revision and its schematic.
+The single-1N4002 / 4.48 V configuration described above is an experimental prototype result only. It should not be treated as the final production power solution.
 
 Power should be disconnected before modifying modem wiring or SIM-card hardware.
 
