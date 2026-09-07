@@ -25,6 +25,9 @@
 #define SIM800_HEALTH_CHECK_MS   10000U
 #define SIM800_ANSWER_TIMEOUT_MS 3000U
 #define SIM800_DDET_TIMEOUT_MS   2000U
+#define SIM800_DTAM_TIMEOUT_MS   2000U
+#define SIM800_CMEDPLAY_TIMEOUT_MS 3000U
+#define SIM800_MEDIA_END_TIMEOUT_MS 15000U
 
 typedef enum {
     SIM800_STATE_NOT_INITIALIZED = 0,
@@ -37,6 +40,9 @@ typedef enum {
     SIM800_STATE_READY,
 	SIM800_STATE_WAIT_ANSWER,
 	SIM800_STATE_WAIT_DDET,
+    SIM800_STATE_WAIT_DTAM,
+    SIM800_STATE_WAIT_CMEDPLAY,
+    SIM800_STATE_WAIT_MEDIA_END,
     SIM800_STATE_ERROR,
     SIM800_STATE_SIM_ERROR
 } Sim800State_t;
@@ -149,6 +155,55 @@ static bool sendDdetCommand(void)
     }
 
     sim800_state = SIM800_STATE_WAIT_DDET;
+    state_started_tick = HAL_GetTick();
+
+    return true;
+}
+
+
+
+static bool sendDtamCommand(void)
+{
+    static const uint8_t command[] =
+        "AT+DTAM=1\r";
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command) - 1U,
+            1000U) != HAL_OK) {
+
+        setLastError("DTAM TX ERROR");
+        return false;
+    }
+
+    sim800_state = SIM800_STATE_WAIT_DTAM;
+    state_started_tick = HAL_GetTick();
+
+    return true;
+}
+
+
+static bool sendMediaPlayCommand(void)
+{
+    static const uint8_t command[] =
+        "AT+CMEDPLAY=1,C:\\voice.wav,0,100\r";
+
+    clearRxBuffer();
+
+    if (HAL_UART_Transmit(
+            sim800_uart,
+            (uint8_t *)command,
+            sizeof(command) - 1U,
+            1000U) != HAL_OK) {
+
+        setLastError("CMEDPLAY TX ERROR");
+        return false;
+    }
+
+    sim800_state = SIM800_STATE_WAIT_CMEDPLAY;
     state_started_tick = HAL_GetTick();
 
     return true;
@@ -894,6 +949,144 @@ bool Sim800Service_Process(void)
 
 
 
+
+    case SIM800_STATE_WAIT_DTAM:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
+
+        if (strstr(snapshot, "NO CARRIER") != NULL) {
+
+            sim800_model->call_state = UI_CALL_IDLE;
+            sim800_model->dtmf_detection_enabled = false;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if (strstr(snapshot, "OK") != NULL) {
+
+            if (!sendMediaPlayCommand()) {
+                sim800_state = SIM800_STATE_READY;
+                state_started_tick = HAL_GetTick();
+            }
+
+            return true;
+        }
+
+        if ((strstr(snapshot, "ERROR") != NULL) ||
+            ((HAL_GetTick() - state_started_tick) >=
+             SIM800_DTAM_TIMEOUT_MS)) {
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("DTAM FAILED");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        break;
+
+
+    case SIM800_STATE_WAIT_CMEDPLAY:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
+
+        if (strstr(snapshot, "NO CARRIER") != NULL) {
+
+            sim800_model->call_state = UI_CALL_IDLE;
+            sim800_model->dtmf_detection_enabled = false;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if (strstr(snapshot, "OK") != NULL) {
+
+            sim800_state = SIM800_STATE_WAIT_MEDIA_END;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((strstr(snapshot, "ERROR") != NULL) ||
+            ((HAL_GetTick() - state_started_tick) >=
+             SIM800_CMEDPLAY_TIMEOUT_MS)) {
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("CMEDPLAY FAILED");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        break;
+
+
+    case SIM800_STATE_WAIT_MEDIA_END:
+        getRxSnapshot(
+            snapshot,
+            sizeof(snapshot));
+
+        if (strstr(snapshot, "NO CARRIER") != NULL) {
+
+            sim800_model->call_state = UI_CALL_IDLE;
+            sim800_model->dtmf_detection_enabled = false;
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((strstr(snapshot, "+CMEDPLAY: 0") != NULL) ||
+            (strstr(snapshot, "+CMEDPLAY:0") != NULL)) {
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("NONE");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        if ((HAL_GetTick() - state_started_tick) >=
+            SIM800_MEDIA_END_TIMEOUT_MS) {
+
+            sim800_state = SIM800_STATE_READY;
+            state_started_tick = HAL_GetTick();
+
+            setLastError("PLAYBACK TIMEOUT");
+            clearRxBuffer();
+
+            return true;
+        }
+
+        break;
+
+
     case SIM800_STATE_ERROR:
         /*
          * Keep retrying periodically so a modem that
@@ -962,15 +1155,30 @@ bool Sim800Service_Process(void)
         if (sim800_model->call_state == UI_CALL_ACTIVE &&
             parseDtmfEvent(snapshot, &dtmf_key)) {
 
-            if (uiModelAddDtmf(
-                    sim800_model,
-                    dtmf_key)) {
+            bool dtmf_changed;
 
-                clearRxBuffer();
+            dtmf_changed = uiModelAddDtmf(
+                sim800_model,
+                dtmf_key);
+
+            clearRxBuffer();
+
+            /*
+             * DTMF 1 plays the prerecorded voice file
+             * already stored in SIM800 local filesystem.
+             */
+            if (dtmf_key == '1') {
+
+                if (!sendDtamCommand()) {
+                    sim800_state = SIM800_STATE_READY;
+                    state_started_tick = HAL_GetTick();
+                }
+
                 return true;
             }
 
-            clearRxBuffer();
+            if (dtmf_changed)
+                return true;
         }
 
 
