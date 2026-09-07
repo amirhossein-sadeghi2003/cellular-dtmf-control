@@ -239,6 +239,7 @@ int main(void)
 
     char smsStorage[8];
     int smsIndex;
+    char smsCommand[32];
 
     char memDrive;
     unsigned long freeBytes;
@@ -1392,6 +1393,163 @@ int main(void)
 
 
         /*
+         * State 35:
+         * Enable SMS text mode, then read the message.
+         */
+        else if (state == 35U)
+        {
+            if (strstr(snapshot, "OK") != NULL)
+            {
+                int commandLength;
+
+                RX_ResetBuffer();
+
+                commandLength = snprintf(
+                    smsCommand,
+                    sizeof(smsCommand),
+                    "AT+CMGR=%d\r",
+                    smsIndex
+                );
+
+                LCD_Show(
+                    "READ SMS",
+                    "CMGR..."
+                );
+
+                if ((commandLength <= 0) ||
+                    (HAL_UART_Transmit(
+                        &huart3,
+                        (uint8_t *)smsCommand,
+                        (uint16_t)commandLength,
+                        1000U
+                    ) != HAL_OK))
+                {
+                    LCD_Show(
+                        "CMGR",
+                        "TX ERROR"
+                    );
+
+                    state = 99U;
+                }
+                else
+                {
+                    commandTime = HAL_GetTick();
+                    state = 36U;
+                }
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "CMGF",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 3000U)
+            {
+                LCD_Show(
+                    "CMGF",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
+
+        /*
+         * State 36:
+         * Wait for SMS contents from AT+CMGR.
+         */
+        else if (state == 36U)
+        {
+            position = strstr(
+                snapshot,
+                "+CMGR:"
+            );
+
+            if (position != NULL)
+            {
+                char *body;
+                char *end;
+                char smsText[17];
+
+                body = strstr(position, "\r\n");
+
+                if (body != NULL)
+                {
+                    body += 2;
+
+                    end = strstr(body, "\r\n");
+
+                    if (end != NULL)
+                    {
+                        size_t length =
+                            (size_t)(end - body);
+
+                        if (length > 16U)
+                        {
+                            length = 16U;
+                        }
+
+                        memset(
+                            smsText,
+                            0,
+                            sizeof(smsText)
+                        );
+
+                        memcpy(
+                            smsText,
+                            body,
+                            length
+                        );
+
+                        LCD_Show(
+                            "SMS READ",
+                            smsText
+                        );
+
+                        RX_ResetBuffer();
+
+                        state = 4U;
+                    }
+                }
+            }
+
+            if (strstr(snapshot, "NO CARRIER") != NULL)
+            {
+                RX_ResetBuffer();
+
+                LCD_Show(
+                    "CALL ENDED",
+                    "WAITING CALL"
+                );
+
+                state = 1U;
+            }
+            else if (strstr(snapshot, "ERROR") != NULL)
+            {
+                LCD_Show(
+                    "CMGR",
+                    "ERROR"
+                );
+
+                state = 99U;
+            }
+            else if ((HAL_GetTick() - commandTime) >= 5000U)
+            {
+                LCD_Show(
+                    "CMGR",
+                    "TIMEOUT"
+                );
+
+                state = 99U;
+            }
+        }
+
+
+        /*
          * State 30:
          * Wait for DTAM=1 confirmation.
          */
@@ -1551,6 +1709,26 @@ int main(void)
                     );
 
                     RX_ResetBuffer();
+
+                    if (HAL_UART_Transmit(
+                            &huart3,
+                            (uint8_t *)"AT+CMGF=1\r",
+                            sizeof("AT+CMGF=1\r") - 1U,
+                            1000U
+                        ) != HAL_OK)
+                    {
+                        LCD_Show(
+                            "CMGF",
+                            "TX ERROR"
+                        );
+
+                        state = 99U;
+                    }
+                    else
+                    {
+                        commandTime = HAL_GetTick();
+                        state = 35U;
+                    }
                 }
             }
 
