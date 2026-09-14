@@ -12,7 +12,16 @@
 
 
 extern SPI_HandleTypeDef hspi2;
+
+extern volatile uint32_t lcd_spi_error_count;
+extern volatile uint32_t lcd_spi_last_status;
+extern volatile uint32_t lcd_spi_last_error_code;
+extern volatile uint32_t lcd_spi_last_operation;
+
 #define LCD_SPI_TIMEOUT_MS 20U
+
+#define LCD_SPI_OPERATION_COMMAND 1U
+#define LCD_SPI_OPERATION_DATA    2U
 
 static GFXINLINE void init_board(GDisplay *g){
 	g->board = 0;
@@ -74,6 +83,7 @@ static GFXINLINE void write_index(
     gU16 index)
 {
     uint8_t command;
+    HAL_StatusTypeDef status;
 
     (void)g;
 
@@ -84,12 +94,20 @@ static GFXINLINE void write_index(
         LCD_DC_Pin,
         GPIO_PIN_RESET);
 
-    if (HAL_SPI_Transmit(
-            &hspi2,
-            &command,
-            1U,
-            LCD_SPI_TIMEOUT_MS) != HAL_OK)
+    status = HAL_SPI_Transmit(
+        &hspi2,
+        &command,
+        1U,
+        LCD_SPI_TIMEOUT_MS);
+
+    if (status != HAL_OK)
     {
+        lcd_spi_error_count++;
+        lcd_spi_last_status = (uint32_t)status;
+        lcd_spi_last_error_code = hspi2.ErrorCode;
+        lcd_spi_last_operation =
+            LCD_SPI_OPERATION_COMMAND;
+
         return;
     }
 }
@@ -100,6 +118,7 @@ static GFXINLINE void write_data(
     gU16 data)
 {
     uint8_t value;
+    HAL_StatusTypeDef status;
 
     (void)g;
 
@@ -110,12 +129,20 @@ static GFXINLINE void write_data(
         LCD_DC_Pin,
         GPIO_PIN_SET);
 
-    if (HAL_SPI_Transmit(
-            &hspi2,
-            &value,
-            1U,
-            LCD_SPI_TIMEOUT_MS) != HAL_OK)
+    status = HAL_SPI_Transmit(
+        &hspi2,
+        &value,
+        1U,
+        LCD_SPI_TIMEOUT_MS);
+
+    if (status != HAL_OK)
     {
+        lcd_spi_error_count++;
+        lcd_spi_last_status = (uint32_t)status;
+        lcd_spi_last_error_code = hspi2.ErrorCode;
+        lcd_spi_last_operation =
+            LCD_SPI_OPERATION_DATA;
+
         return;
     }
 }
